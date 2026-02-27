@@ -116,7 +116,7 @@ export function Board({ children, camera, setCamera, panMode, setPanMode }) {
                     className={panMode ? 'active' : ''}
                     onClick={() => setPanMode((prev) => !prev)}
                 >
-                    Pan
+                    Tile Lock
                 </button>
                 <button
                     type="button"
