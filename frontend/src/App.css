@@ -164,6 +164,13 @@
   margin-bottom: 1rem;
 }
 
+.game-over-actions {
+  display: flex;
+  gap: 1rem;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
 .inspection-board-wrap {
   max-width: 80vw;
   max-height: 45vh;

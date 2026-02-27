@@ -197,6 +197,32 @@ function maybeResolveInspection(roomId) {
 io.on('connection', (socket) => {
   console.log('User connected:', socket.id);
 
+  const removePlayerFromRoom = (roomId, playerId) => {
+    const room = rooms[roomId];
+    if (!room || !room.players[playerId]) return;
+
+    if (room.status === 'inspecting') {
+      if (room.inspectingPlayer === playerId) {
+        clearInspectionState(room);
+        room.status = 'playing';
+      } else {
+        room.inspectingJudges = (room.inspectingJudges || []).filter((id) => id !== playerId);
+        if (room.inspectionVotes[playerId]) {
+          delete room.inspectionVotes[playerId];
+        }
+        maybeResolveInspection(roomId);
+      }
+    }
+
+    delete room.players[playerId];
+
+    if (Object.keys(room.players).length === 0) {
+      delete rooms[roomId];
+    } else {
+      io.to(roomId).emit('room_state_updated', getRoomState(room));
+    }
+  };
+
   socket.on('join_room', ({ roomId, playerName }) => {
     socket.join(roomId);
 
@@ -370,33 +396,17 @@ io.on('connection', (socket) => {
     maybeResolveInspection(roomId);
   });
 
+  socket.on('leave_room', ({ roomId }) => {
+    if (!roomId) return;
+    socket.leave(roomId);
+    removePlayerFromRoom(roomId, socket.id);
+  });
+
   socket.on('disconnect', () => {
     console.log('User disconnected:', socket.id);
 
     for (const roomId in rooms) {
-      const room = rooms[roomId];
-      if (!room.players[socket.id]) continue;
-
-      if (room.status === 'inspecting') {
-        if (room.inspectingPlayer === socket.id) {
-          clearInspectionState(room);
-          room.status = 'playing';
-        } else {
-          room.inspectingJudges = (room.inspectingJudges || []).filter((id) => id !== socket.id);
-          if (room.inspectionVotes[socket.id]) {
-            delete room.inspectionVotes[socket.id];
-          }
-          maybeResolveInspection(roomId);
-        }
-      }
-
-      delete room.players[socket.id];
-
-      if (Object.keys(room.players).length === 0) {
-        delete rooms[roomId];
-      } else {
-        io.to(roomId).emit('room_state_updated', getRoomState(room));
-      }
+      removePlayerFromRoom(roomId, socket.id);
     }
   });
 });

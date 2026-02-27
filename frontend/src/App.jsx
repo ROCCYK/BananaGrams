@@ -189,6 +189,9 @@ function App() {
   const handleJoin = (e) => {
     e.preventDefault();
     if (roomId.trim() && playerName.trim()) {
+      if (!socket.connected) {
+        socket.connect();
+      }
       socket.emit('join_room', { roomId, playerName });
       setInLobby(false);
     }
@@ -236,6 +239,33 @@ function App() {
 
   const handleInspectionVote = (vote) => {
     socket.emit('inspection_vote', { roomId, vote });
+  };
+
+  const resetToLobbyState = () => {
+    setTiles({});
+    setActiveId(null);
+    setGameOver(null);
+    setRoomState({
+      status: 'waiting',
+      players: {},
+      poolSize: 0,
+      inspectingPlayer: null,
+      inspectingBoardTiles: [],
+      inspectingJudges: [],
+      inspectionVotes: {}
+    });
+    setInLobby(true);
+  };
+
+  const handleExitGame = () => {
+    socket.disconnect();
+    resetToLobbyState();
+  };
+
+  const handleReturnToLobby = () => {
+    socket.emit('leave_room', { roomId });
+    setRoomId('');
+    resetToLobbyState();
   };
 
   const handleRevealTile = (tileId) => {
@@ -489,9 +519,12 @@ function App() {
       ) : null}
 
       {gameOver ? (
-        <div className="overlay" onClick={() => setGameOver(null)}>
+        <div className="overlay">
           <h1>{gameOver}</h1>
-          <p>Click anywhere to dismiss</p>
+          <div className="game-over-actions">
+            <button onClick={handleExitGame}>Exit Game</button>
+            <button onClick={handleReturnToLobby}>Return to Lobby</button>
+          </div>
         </div>
       ) : null}
     </div>
