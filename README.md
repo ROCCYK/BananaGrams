@@ -1,81 +1,116 @@
-# 🍌 BananaGrams (Web App)
+# 🍌 Bananagrams (Realtime Web App)
 
-A multiplayer **web-based word game** inspired by **Bananagrams**, the fast-paced anagram game where players race to build a connected crossword using all their letters.
+Multiplayer Bananagrams-style game built with:
+- React + Vite (frontend)
+- Node.js + Socket.IO (backend)
 
-This project recreates the core gameplay mechanics of Bananagrams in a browser-based experience, supporting player names, multiplayer logic, and real-time game actions like **SPLIT**, **PEEL**, **DUMP**, and **BANANAS**.
+Players join a room, start a game, drag tiles into connected layouts, use `PEEL` / `DUMP`, and finish with `BANANAS` + inspection voting.
 
----
+## Features
+- Realtime multiplayer rooms (Socket.IO)
+- Drag-and-drop tile board with grid snapping
+- `PEEL`, `DUMP`, and `BANANAS` game flow
+- Inspection voting (`Valid Winner` vs `Rotten Banana`)
+- Reconnect support (players can rejoin and resume board state)
+- Mobile-focused UI improvements
+- Camera controls on board:
+  - pan/zoom controls
+  - tile lock toggle for safe camera movement
 
-## 🎮 Gameplay Overview
+## Project Structure
+- `frontend/` React app (Vite)
+- `backend/` Socket.IO server
+- `render.yaml` Render blueprint for frontend + backend
 
-BananaGrams is a **real-time, turnless word game**. All players play simultaneously, racing to be the first to use all their letters correctly.
+## Run Locally
 
-### Game Setup
-- All **144 letter tiles** are placed face-down into a central pool called the **BUNCH**
-- Each player draws tiles based on player count:
-  - **2–4 players** → 21 tiles each
-  - **5–6 players** → 15 tiles each
-  - **7 players** → 11 tiles each
-- Players choose and lock in their names before the game starts
-
-### SPLIT
-- Any player may start the game by calling **“SPLIT!”**
-- All players flip their tiles face-up and begin forming **their own crossword grid**
-- Words:
-  - Must connect
-  - Can be horizontal or vertical
-  - Go left → right or top → bottom
-  - May be rearranged freely at any time
-- There are **no turns** — everyone plays simultaneously
-
-### PEEL
-- When a player successfully uses **all their tiles**, they call **“PEEL!”**
-- Every player draws **one additional tile** from the BUNCH and adds it to their grid
-
-### DUMP
-- At any time, a player may return **one unwanted tile** to the BUNCH by calling **“DUMP!”**
-- In exchange, that player draws **three new tiles**
-- This action only affects the player who dumped
-
-### BANANAS (Winning the Game)
-- When there are **fewer tiles left in the BUNCH than players**
-- The first player with **no remaining letters** calls **“BANANAS!”**
-- Other players verify the winner’s grid:
-  - All words must be spelled correctly
-  - Proper nouns are not allowed
-  - A dictionary may be used for verification
-
-#### ❌ Rotten Banana Rule
-- If any word is invalid:
-  - The player becomes the **“ROTTEN BANANA”**
-  - They return all their tiles to the BUNCH
-  - The game continues without them
-
----
-
-## 🚀 Features
-
-- 🌐 Web-based multiplayer gameplay
-- 👤 Custom player names with duplicate-name protection
-- 🔒 Name locking once the game starts
-- ⚡ Real-time actions (SPLIT, PEEL, DUMP, BANANAS)
-- 🧩 Individual crossword boards per player
-- 🏁 Automatic win condition handling
-- 📚 Word validation support (dictionary-based)
-
----
-
-## 🛠️ Tech Stack
-
-- Frontend: HTML / CSS / JavaScript
-- Backend: JavaScript (Node.js)
-- Real-time communication: WebSockets / multiplayer state management
-- Dictionary validation: Local or online word list
-
----
-
-## ▶️ Running the App Locally
-
+### 1) Install dependencies
 ```bash
-git clone https://github.com/ROCCYK/BananaGrams.git
-cd BananaGrams
+npm --prefix backend ci
+npm --prefix frontend ci
+```
+
+### 2) Start backend (port 3001 by default)
+```bash
+npm --prefix backend run start
+```
+
+### 3) Start frontend
+```bash
+npm --prefix frontend run dev
+```
+
+Frontend runs on Vite dev server (usually `http://localhost:5173`), backend on `http://localhost:3001`.
+
+## Environment Variables
+
+### Frontend
+- `VITE_API_URL` (optional in local dev)
+  - Default fallback: `http://localhost:3001`
+  - Set this in production to your backend URL.
+
+### Backend
+- `PORT` (optional, default `3001`)
+- `CORS_ORIGIN`
+  - Use `*` for open access, or
+  - Comma-separated allowed origins, e.g.:
+    - `https://your-frontend.onrender.com,https://your-preview.onrender.com`
+
+Backend health endpoint:
+- `GET /healthz` → `{ "ok": true }`
+
+## Deploy on Render
+
+You need two services:
+1. Backend: **Web Service** (Node)
+2. Frontend: **Static Site**
+
+### Backend service settings
+- Root Directory: `backend`
+- Build Command: `npm ci`
+- Start Command: `npm run start`
+- Environment:
+  - `NODE_ENV=production`
+  - `CORS_ORIGIN=https://<your-frontend>.onrender.com`
+
+### Frontend service settings
+- Root Directory: `frontend`
+- Build Command: `npm ci && npm run build`
+- Publish Directory: `dist`
+- Environment:
+  - `VITE_API_URL=https://<your-backend>.onrender.com`
+
+### Important
+- Vite env vars are build-time. After changing `VITE_API_URL`, redeploy frontend.
+- If UI appears unstyled, your static site build/publish settings are wrong (usually not publishing `dist`).
+
+## Troubleshooting
+
+### Start Game does nothing
+Usually frontend is not connected to backend:
+- Verify frontend `VITE_API_URL`
+- Verify backend `CORS_ORIGIN` includes exact frontend URL
+- Check backend logs for socket connections
+
+### App loads without styling
+- Ensure frontend is deployed as **Static Site**
+- Build command: `npm ci && npm run build`
+- Publish directory: `dist`
+
+### Rejoin doesn’t restore board
+- Confirm backend and frontend are both updated to latest deploy
+- Ensure socket reconnect succeeds (no CORS/origin mismatch)
+
+## Scripts
+
+### Backend
+```bash
+npm --prefix backend run start
+```
+
+### Frontend
+```bash
+npm --prefix frontend run dev
+npm --prefix frontend run build
+npm --prefix frontend run lint
+```
