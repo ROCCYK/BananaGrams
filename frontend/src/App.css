@@ -1,0 +1,252 @@
+#root {
+  width: 100vw;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  /* Prevent scrolling, Board manages its own space */
+}
+
+/* App Main Layout */
+.app-container {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  width: 100%;
+}
+
+.lobby {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100vh;
+  gap: 2rem;
+}
+
+.lobby-form {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  width: 100%;
+  max-width: 400px;
+}
+
+.lobby-form input {
+  width: 100%;
+}
+
+/* Game Interface */
+.game-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1rem 2rem;
+  background: rgba(18, 18, 18, 0.8);
+  backdrop-filter: blur(10px);
+  border-bottom: 1px solid var(--glass-border);
+  z-index: 100;
+}
+
+.header-stats {
+  display: flex;
+  gap: 2rem;
+  font-size: 1.2em;
+  font-weight: 600;
+}
+
+.pool-count {
+  color: var(--banana-yellow);
+}
+
+.game-controls {
+  display: flex;
+  gap: 1rem;
+}
+
+.btn-peel {
+  background-color: #ff3b3b;
+  color: white;
+  box-shadow: 0 4px 0 #cc0000;
+}
+
+.btn-peel:hover {
+  box-shadow: 0 6px 0 #cc0000, 0 8px 16px rgba(255, 59, 59, 0.3);
+}
+
+.btn-peel:active {
+  box-shadow: 0 0 0 #cc0000;
+}
+
+.btn-dump {
+  background-color: #4a4a4a;
+  color: white;
+  box-shadow: 0 4px 0 #2a2a2a;
+}
+
+.btn-dump:hover {
+  box-shadow: 0 6px 0 #2a2a2a, 0 8px 16px rgba(74, 74, 74, 0.3);
+}
+
+.btn-dump:active {
+  box-shadow: 0 0 0 #2a2a2a;
+}
+
+/* The Board Area */
+.board-container {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+  /* Drag boundaries are constrained or infinite-feeling */
+  background-image:
+    radial-gradient(rgba(255, 255, 255, 0.05) 1px, transparent 1px),
+    radial-gradient(rgba(255, 255, 255, 0.05) 1px, transparent 1px);
+  background-size: 40px 40px;
+  background-position: 0 0, 20px 20px;
+}
+
+/* Individual Tiles */
+.tile {
+  width: 60px;
+  height: 60px;
+  background-color: var(--tile-bg);
+  color: var(--tile-text);
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 2rem;
+  font-weight: 800;
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2), inset 0 2px 0 rgba(255, 255, 255, 0.8);
+  user-select: none;
+  touch-action: none;
+  transition: opacity 0.2s, box-shadow 0.2s;
+  /* Optional: subtle carving effect for letter */
+  text-shadow: 0px 1px 1px rgba(255, 255, 255, 0.6);
+}
+
+.tile.dragging {
+  box-shadow: 0 12px 24px rgba(0, 0, 0, 0.4), inset 0 2px 0 rgba(255, 255, 255, 0.8);
+}
+
+.tile.facedown {
+  background: linear-gradient(145deg, #3e3e3e, #1f1f1f);
+  color: transparent;
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.35), inset 0 2px 0 rgba(255, 255, 255, 0.15);
+}
+
+/* Overlay / Toast messages */
+.overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.8);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  z-index: 1000;
+  animation: fadeIn 0.3s ease;
+}
+
+.overlay h1 {
+  font-size: 5rem;
+  text-transform: uppercase;
+  background: linear-gradient(to bottom, #FADB5F, #E2C034);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  margin-bottom: 2rem;
+}
+
+.overlay h2 {
+  margin-bottom: 1rem;
+}
+
+.inspection-board-wrap {
+  max-width: 80vw;
+  max-height: 45vh;
+  overflow: auto;
+  margin: 0.5rem 0 1rem;
+  padding: 0.4rem;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 12px;
+}
+
+.inspection-board-grid {
+  display: grid;
+  gap: 4px;
+}
+
+.inspection-cell {
+  width: 42px;
+  height: 42px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.05);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 800;
+}
+
+.inspection-cell.filled {
+  background: var(--tile-bg);
+  color: var(--tile-text);
+  border-color: rgba(0, 0, 0, 0.2);
+}
+
+.vote-results {
+  margin-top: 0.5rem;
+  text-align: left;
+  width: min(560px, 80vw);
+}
+
+.vote-results h3 {
+  margin: 0 0 0.4rem 0;
+}
+
+.vote-results ul {
+  margin: 0;
+  padding-left: 1.2rem;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+/* Dock holding unplaced tiles */
+.tile-dock {
+  position: absolute;
+  bottom: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--glass-bg);
+  backdrop-filter: blur(10px);
+  border: 1px solid var(--glass-border);
+  border-radius: 16px;
+  padding: 1rem;
+  display: flex;
+  gap: 10px;
+  max-width: 90%;
+  overflow-x: auto;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+  z-index: 50;
+}
+
+.dock-slot {
+  width: 60px;
+  height: 60px;
+  flex-shrink: 0;
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 8px;
+  border: 1px dashed rgba(255, 255, 255, 0.2);
+}
