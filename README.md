@@ -67,10 +67,8 @@ BananaGrams is a **real-time, turnless word game**. All players play simultaneou
 
 ## 🛠️ Tech Stack
 
-*(Update this section if needed)*
-
 - Frontend: HTML / CSS / JavaScript
-- Backend: JavaScript (Node.js or similar)
+- Backend: JavaScript (Node.js)
 - Real-time communication: WebSockets / multiplayer state management
 - Dictionary validation: Local or online word list
 
