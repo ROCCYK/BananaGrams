@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { io } from 'socket.io-client';
 import {
   DndContext,
@@ -14,6 +14,21 @@ import { Board } from './components/Board';
 import './App.css';
 
 const socket = io('http://localhost:3001');
+
+const getOrCreateRejoinKey = (roomId, playerName) => {
+  const roomKey = roomId.trim().toLowerCase();
+  const playerKey = playerName.trim().toLowerCase();
+  const storageKey = `bananagrams.rejoinKey.${roomKey}.${playerKey}`;
+  const existing = window.localStorage.getItem(storageKey);
+  if (existing) return existing;
+
+  const nextKey = typeof crypto?.randomUUID === 'function'
+    ? crypto.randomUUID()
+    : `rejoin-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+
+  window.localStorage.setItem(storageKey, nextKey);
+  return nextKey;
+};
 
 const TILE_SIZE = 60;
 const TILE_SPACING = 65;
@@ -53,6 +68,42 @@ const getCenteredDealPositions = (count) => {
   });
 };
 
+const getOpenSpawnPositions = (existingTiles, count) => {
+  const occupied = new Set(
+    Object.values(existingTiles).map((tile) => `${Math.round(tile.left)},${Math.round(tile.top)}`)
+  );
+  const positions = [];
+  const centerLeft = Math.round((window.innerWidth / 2) / TILE_SPACING) * TILE_SPACING;
+  const centerTop = Math.round((window.innerHeight / 2) / TILE_SPACING) * TILE_SPACING;
+  const maxRadius = 20;
+
+  for (let radius = 0; radius <= maxRadius && positions.length < count; radius += 1) {
+    for (let dy = -radius; dy <= radius && positions.length < count; dy += 1) {
+      for (let dx = -radius; dx <= radius && positions.length < count; dx += 1) {
+        const onEdge = radius === 0 || Math.abs(dx) === radius || Math.abs(dy) === radius;
+        if (!onEdge) continue;
+
+        const left = centerLeft + dx * TILE_SPACING;
+        const top = centerTop + dy * TILE_SPACING;
+        const key = `${left},${top}`;
+        if (occupied.has(key)) continue;
+
+        occupied.add(key);
+        positions.push({ left, top });
+      }
+    }
+  }
+
+  while (positions.length < count) {
+    positions.push({
+      left: centerLeft + positions.length * TILE_SPACING,
+      top: centerTop
+    });
+  }
+
+  return positions;
+};
+
 const buildInspectionGrid = (boardTiles) => {
   if (!Array.isArray(boardTiles) || boardTiles.length === 0) {
     return { cols: 0, cells: [] };
@@ -84,6 +135,19 @@ const buildInspectionGrid = (boardTiles) => {
   return { cols, cells };
 };
 
+const snapToGrid = (value) => Math.round(value / TILE_SPACING) * TILE_SPACING;
+
+const buildSnappedBoardTiles = (tilesMap, includeLetters = false) =>
+  Object.values(tilesMap).map((tile) => {
+    const snapped = {
+      left: snapToGrid(tile.left),
+      top: snapToGrid(tile.top)
+    };
+
+    if (!includeLetters) return snapped;
+    return { ...snapped, letter: tile.letter };
+  });
+
 function App() {
   const [roomId, setRoomId] = useState('');
   const [playerName, setPlayerName] = useState('');
@@ -99,6 +163,8 @@ function App() {
   });
   const [tiles, setTiles] = useState({});
   const [activeId, setActiveId] = useState(null);
+  const [pendingDumpTileId, setPendingDumpTileId] = useState(null);
+  const pendingDumpTileIdRef = useRef(null);
   const [gameOver, setGameOver] = useState(null);
 
   useEffect(() => {
@@ -124,6 +190,7 @@ function App() {
 
       setTiles(initialTiles);
       setActiveId(null);
+      setPendingDumpTileId(null);
       setGameOver(null);
     });
 
@@ -134,28 +201,50 @@ function App() {
         [id]: {
           id,
           letter: tile,
-          left: window.innerWidth / 2,
-          top: window.innerHeight / 2,
+          ...getOpenSpawnPositions(prev, 1)[0],
           placed: false,
           revealed: true
         }
       }));
     });
 
-    socket.on('dump_received', ({ tiles: newTiles }) => {
-      const mappedTiles = {};
-      newTiles.forEach((letter, index) => {
-        const id = `tile-${Date.now()}-${index}`;
-        mappedTiles[id] = {
-          id,
-          letter,
-          left: (window.innerWidth / 2) - 65 + (index * 65),
-          top: window.innerHeight / 2,
-          placed: false,
-          revealed: true
-        };
+    socket.on('dump_received', ({ tiles: newTiles, clientTileId, dumpedLetter }) => {
+      setTiles((prev) => {
+        const next = { ...prev };
+        let removedTile = false;
+        const preferredTileId = clientTileId || pendingDumpTileIdRef.current;
+
+        if (preferredTileId && next[preferredTileId]) {
+          delete next[preferredTileId];
+          removedTile = true;
+        }
+
+        if (!removedTile && dumpedLetter) {
+          const fallbackId = Object.keys(next).find((tileId) => next[tileId]?.letter === dumpedLetter);
+          if (fallbackId) {
+            delete next[fallbackId];
+          }
+        }
+
+        const spawnPositions = getOpenSpawnPositions(next, newTiles.length);
+        const mappedTiles = {};
+        newTiles.forEach((letter, index) => {
+          const id = `tile-${Date.now()}-${index}`;
+          mappedTiles[id] = {
+            id,
+            letter,
+            left: spawnPositions[index].left,
+            top: spawnPositions[index].top,
+            placed: false,
+            revealed: true
+          };
+        });
+
+        return { ...next, ...mappedTiles };
       });
-      setTiles((prev) => ({ ...prev, ...mappedTiles }));
+      setPendingDumpTileId(null);
+      pendingDumpTileIdRef.current = null;
+      setActiveId(null);
     });
 
     socket.on('game_over', ({ message }) => {
@@ -172,6 +261,15 @@ function App() {
     });
 
     socket.on('error', (err) => {
+      const message = String(err?.message || '').toLowerCase();
+      const isDumpError =
+        message.includes('dump') ||
+        message.includes('currently in your hand');
+
+      if (isDumpError) {
+        setPendingDumpTileId(null);
+        pendingDumpTileIdRef.current = null;
+      }
       alert(err.message);
     });
 
@@ -188,11 +286,14 @@ function App() {
 
   const handleJoin = (e) => {
     e.preventDefault();
-    if (roomId.trim() && playerName.trim()) {
+    const trimmedRoomId = roomId.trim();
+    const trimmedPlayerName = playerName.trim();
+    if (trimmedRoomId && trimmedPlayerName) {
       if (!socket.connected) {
         socket.connect();
       }
-      socket.emit('join_room', { roomId, playerName });
+      const rejoinKey = getOrCreateRejoinKey(trimmedRoomId, trimmedPlayerName);
+      socket.emit('join_room', { roomId: trimmedRoomId, playerName: trimmedPlayerName, rejoinKey });
       setInLobby(false);
     }
   };
@@ -202,10 +303,13 @@ function App() {
   };
 
   const handlePeel = () => {
-    const boardTiles = Object.values(tiles).map((tile) => ({
-      left: tile.left,
-      top: tile.top
-    }));
+    const hiddenTiles = Object.values(tiles).filter((tile) => !tile.revealed).length;
+    if (hiddenTiles > 0) {
+      alert('Flip all your tiles before calling PEEL!');
+      return;
+    }
+
+    const boardTiles = buildSnappedBoardTiles(tiles);
     socket.emit('peel', { roomId, boardTiles });
   };
 
@@ -214,26 +318,20 @@ function App() {
       alert('Select a tile to dump first!');
       return;
     }
+    if (pendingDumpTileId) {
+      return;
+    }
 
     const letter = tiles[activeId]?.letter;
     if (!letter) return;
 
-    setTiles((prev) => {
-      const next = { ...prev };
-      delete next[activeId];
-      return next;
-    });
-
-    setActiveId(null);
-    socket.emit('dump', { roomId, letter });
+    setPendingDumpTileId(activeId);
+    pendingDumpTileIdRef.current = activeId;
+    socket.emit('dump', { roomId, letter, clientTileId: activeId });
   };
 
   const handleBananas = () => {
-    const boardTiles = Object.values(tiles).map((tile) => ({
-      left: tile.left,
-      top: tile.top,
-      letter: tile.letter
-    }));
+    const boardTiles = buildSnappedBoardTiles(tiles, true);
     socket.emit('bananas', { roomId, boardTiles });
   };
 
@@ -244,6 +342,8 @@ function App() {
   const resetToLobbyState = () => {
     setTiles({});
     setActiveId(null);
+    setPendingDumpTileId(null);
+    pendingDumpTileIdRef.current = null;
     setGameOver(null);
     setRoomState({
       status: 'waiting',
@@ -380,6 +480,9 @@ function App() {
   const isInspectingPlayer = roomState.inspectingPlayer === socket.id;
   const isJudge = (roomState.inspectingJudges || []).includes(socket.id);
   const hasVoted = Boolean(roomState.inspectionVotes?.[socket.id]);
+  const allTilesRevealed = Object.values(tiles).every((tile) => tile.revealed);
+  const playerEntries = Object.values(roomState.players || {})
+    .sort((a, b) => a.name.localeCompare(b.name));
   const voteEntries = Object.entries(roomState.inspectionVotes || {}).map(([playerId, vote]) => ({
     playerId,
     playerName: roomState.players[playerId]?.name || 'Unknown',
@@ -403,11 +506,11 @@ function App() {
 
           {isPlaying && !myPlayer.isOut && (
             <>
-              <button className="btn-peel" onClick={handlePeel}>
+              <button className="btn-peel" onClick={handlePeel} disabled={!allTilesRevealed}>
                 PEEL!
               </button>
               {activeId ? (
-                <button className="btn-dump" onClick={handleDump}>
+                <button className="btn-dump" onClick={handleDump} disabled={Boolean(pendingDumpTileId)}>
                   Dump Selected
                 </button>
               ) : null}
@@ -421,6 +524,17 @@ function App() {
           )}
         </div>
       </header>
+
+      <section className="player-roster">
+        {playerEntries.map((player) => (
+          <div key={player.id} className="player-chip">
+            <span>{player.name}</span>
+            <span className={`connection-badge ${player.connected === false ? 'reconnecting' : 'connected'}`}>
+              {player.connected === false ? 'Reconnecting' : 'Connected'}
+            </span>
+          </div>
+        ))}
+      </section>
 
       {myPlayer.isOut ? (
         <div style={{ padding: '10px', background: 'rgba(255,50,50,0.8)', color: 'white', fontWeight: 'bold' }}>

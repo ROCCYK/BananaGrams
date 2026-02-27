@@ -26,7 +26,9 @@ const INITIAL_POOL = [
 ];
 
 const TILE_SPACING = 65;
-const SNAP_TOLERANCE = 16;
+const SNAP_TOLERANCE = 28;
+const REJOIN_GRACE_MS = 2 * 60 * 1000;
+const disconnectTimers = new Map();
 
 function shuffleArray(array) {
   const newArr = [...array];
@@ -37,8 +39,8 @@ function shuffleArray(array) {
   return newArr;
 }
 
-function allTilesHaveAtLeastOneNeighbor(boardTiles, expectedCount) {
-  if (!Array.isArray(boardTiles) || boardTiles.length !== expectedCount || expectedCount <= 0) {
+function allTilesHaveAtLeastOneNeighbor(boardTiles) {
+  if (!Array.isArray(boardTiles) || boardTiles.length <= 0) {
     return false;
   }
 
@@ -103,8 +105,19 @@ function allTilesHaveAtLeastOneNeighbor(boardTiles, expectedCount) {
 const rooms = {};
 
 function getRoomState(room) {
+  const publicPlayers = {};
+  Object.entries(room.players).forEach(([playerId, player]) => {
+    publicPlayers[playerId] = {
+      id: player.id,
+      name: player.name,
+      handSize: player.handSize,
+      isOut: player.isOut,
+      connected: player.connected !== false
+    };
+  });
+
   return {
-    players: room.players,
+    players: publicPlayers,
     status: room.status,
     poolSize: room.pool.length,
     inspectingPlayer: room.inspectingPlayer || null,
@@ -119,6 +132,20 @@ function clearInspectionState(room) {
   room.inspectingBoardTiles = [];
   room.inspectingJudges = [];
   room.inspectionVotes = {};
+}
+
+function getTimerKey(roomId, rejoinKey) {
+  return `${roomId}:${rejoinKey}`;
+}
+
+function clearDisconnectTimer(roomId, rejoinKey) {
+  if (!roomId || !rejoinKey) return;
+  const key = getTimerKey(roomId, rejoinKey);
+  const existing = disconnectTimers.get(key);
+  if (existing) {
+    clearTimeout(existing);
+    disconnectTimers.delete(key);
+  }
 }
 
 function concludeInspectionAsWinner(roomId) {
@@ -155,6 +182,7 @@ function concludeInspectionAsRotten(roomId) {
   room.pool.push(...returnedTiles);
   room.pool = shuffleArray(room.pool);
   room.players[rottenId].isOut = true;
+  room.players[rottenId].hand = [];
   room.players[rottenId].handSize = 0;
   room.status = 'playing';
 
@@ -200,6 +228,8 @@ io.on('connection', (socket) => {
   const removePlayerFromRoom = (roomId, playerId) => {
     const room = rooms[roomId];
     if (!room || !room.players[playerId]) return;
+    const player = room.players[playerId];
+    clearDisconnectTimer(roomId, player.rejoinKey);
 
     if (room.status === 'inspecting') {
       if (room.inspectingPlayer === playerId) {
@@ -223,7 +253,49 @@ io.on('connection', (socket) => {
     }
   };
 
-  socket.on('join_room', ({ roomId, playerName }) => {
+  const scheduleDisconnectRemoval = (roomId, playerId) => {
+    const room = rooms[roomId];
+    if (!room || !room.players[playerId]) return;
+
+    const player = room.players[playerId];
+    player.connected = false;
+    player.disconnectedAt = Date.now();
+
+    if (!player.rejoinKey) {
+      removePlayerFromRoom(roomId, playerId);
+      return;
+    }
+
+    clearDisconnectTimer(roomId, player.rejoinKey);
+    const key = getTimerKey(roomId, player.rejoinKey);
+
+    const timeout = setTimeout(() => {
+      const latestRoom = rooms[roomId];
+      if (!latestRoom) {
+        disconnectTimers.delete(key);
+        return;
+      }
+
+      const latestEntry = Object.entries(latestRoom.players).find(([, p]) => p.rejoinKey === player.rejoinKey);
+      if (!latestEntry) {
+        disconnectTimers.delete(key);
+        return;
+      }
+
+      const [latestPlayerId, latestPlayer] = latestEntry;
+      if (latestPlayer.connected === false) {
+        removePlayerFromRoom(roomId, latestPlayerId);
+      } else {
+        disconnectTimers.delete(key);
+      }
+    }, REJOIN_GRACE_MS);
+
+    disconnectTimers.set(key, timeout);
+    io.to(roomId).emit('room_state_updated', getRoomState(room));
+  };
+
+  socket.on('join_room', ({ roomId, playerName, rejoinKey }) => {
+    if (!roomId) return;
     socket.join(roomId);
 
     if (!rooms[roomId]) {
@@ -238,14 +310,65 @@ io.on('connection', (socket) => {
       };
     }
 
-    rooms[roomId].players[socket.id] = {
+    const room = rooms[roomId];
+    const normalizedRejoinKey = typeof rejoinKey === 'string' && rejoinKey.trim()
+      ? rejoinKey.trim()
+      : null;
+    const existingPlayerEntry = normalizedRejoinKey
+      ? Object.entries(room.players).find(([, player]) => player.rejoinKey === normalizedRejoinKey)
+      : null;
+
+    if (existingPlayerEntry) {
+      const [previousId, previousPlayer] = existingPlayerEntry;
+      if (previousPlayer.connected !== false && previousId !== socket.id) {
+        socket.emit('error', { message: 'That player is already connected. Close the old tab or use a different name.' });
+        return;
+      }
+
+      clearDisconnectTimer(roomId, previousPlayer.rejoinKey);
+
+      room.players[socket.id] = {
+        ...previousPlayer,
+        id: socket.id,
+        name: playerName || previousPlayer.name,
+        connected: true,
+        disconnectedAt: null
+      };
+      if (previousId !== socket.id) {
+        delete room.players[previousId];
+      }
+
+      if (room.inspectingPlayer === previousId) {
+        room.inspectingPlayer = socket.id;
+      }
+
+      room.inspectingJudges = (room.inspectingJudges || []).map((judgeId) =>
+        judgeId === previousId ? socket.id : judgeId
+      );
+
+      if (room.inspectionVotes[previousId]) {
+        room.inspectionVotes[socket.id] = room.inspectionVotes[previousId];
+        delete room.inspectionVotes[previousId];
+      }
+
+      io.to(roomId).emit('room_state_updated', getRoomState(room));
+      io.to(socket.id).emit('game_started', { hand: [...(room.players[socket.id].hand || [])] });
+      console.log(`${room.players[socket.id].name} rejoined room ${roomId}`);
+      return;
+    }
+
+    room.players[socket.id] = {
       id: socket.id,
-      name: playerName || `Player ${Object.keys(rooms[roomId].players).length + 1}`,
+      name: playerName || `Player ${Object.keys(room.players).length + 1}`,
+      rejoinKey: normalizedRejoinKey,
+      hand: [],
       handSize: 0,
-      isOut: false
+      isOut: false,
+      connected: true,
+      disconnectedAt: null
     };
 
-    io.to(roomId).emit('room_state_updated', getRoomState(rooms[roomId]));
+    io.to(roomId).emit('room_state_updated', getRoomState(room));
     console.log(`${playerName || socket.id} joined room ${roomId}`);
   });
 
@@ -265,9 +388,13 @@ io.on('connection', (socket) => {
 
     players.forEach((player) => {
       room.players[player.id].isOut = false;
+      room.players[player.id].connected = room.players[player.id].connected !== false;
       const hand = room.pool.splice(0, initialTiles);
+      room.players[player.id].hand = hand;
       room.players[player.id].handSize = hand.length;
-      io.to(player.id).emit('game_started', { hand });
+      if (room.players[player.id].connected !== false) {
+        io.to(player.id).emit('game_started', { hand });
+      }
     });
 
     io.to(roomId).emit('room_state_updated', getRoomState(room));
@@ -280,8 +407,13 @@ io.on('connection', (socket) => {
     const peeler = room.players[socket.id];
     if (!peeler || peeler.isOut) return;
 
-    if (!allTilesHaveAtLeastOneNeighbor(boardTiles, peeler.handSize)) {
-      socket.emit('error', { message: 'You can only peel when every tile has at least one connection.' });
+    if (!Array.isArray(boardTiles) || boardTiles.length !== peeler.handSize) {
+      socket.emit('error', { message: `Board tile count (${Array.isArray(boardTiles) ? boardTiles.length : 0}) must match hand size (${peeler.handSize}).` });
+      return;
+    }
+
+    if (!allTilesHaveAtLeastOneNeighbor(boardTiles)) {
+      socket.emit('error', { message: 'You can only peel when every tile has at least one orthogonal connection.' });
       return;
     }
 
@@ -293,26 +425,43 @@ io.on('connection', (socket) => {
 
     activePlayers.forEach((player) => {
       const tile = room.pool.pop();
-      room.players[player.id].handSize += 1;
-      io.to(player.id).emit('peel_received', { tile });
+      room.players[player.id].hand.push(tile);
+      room.players[player.id].handSize = room.players[player.id].hand.length;
+      if (room.players[player.id].connected !== false) {
+        io.to(player.id).emit('peel_received', { tile });
+      }
     });
 
     io.to(roomId).emit('room_state_updated', getRoomState(room));
     console.log(`PEEL in room ${roomId}. Pool size: ${room.pool.length}`);
   });
 
-  socket.on('dump', ({ roomId, letter }) => {
+  socket.on('dump', ({ roomId, letter, clientTileId }) => {
     const room = rooms[roomId];
     if (!room || room.status !== 'playing') return;
-    if (room.players[socket.id]?.isOut) return;
+    const player = room.players[socket.id];
+    if (!player || player.isOut) return;
 
     if (room.pool.length >= 3) {
-      room.pool.push(letter);
+      const normalizedLetter = typeof letter === 'string' ? letter.toUpperCase() : '';
+      const dumpedIndex = player.hand.indexOf(normalizedLetter);
+      if (dumpedIndex === -1) {
+        socket.emit('error', { message: 'You can only dump a tile currently in your hand.' });
+        return;
+      }
+
+      player.hand.splice(dumpedIndex, 1);
+      room.pool.push(normalizedLetter);
       room.pool = shuffleArray(room.pool);
 
       const newTiles = room.pool.splice(0, 3);
-      room.players[socket.id].handSize += 2;
-      io.to(socket.id).emit('dump_received', { tiles: newTiles });
+      player.hand.push(...newTiles);
+      player.handSize = player.hand.length;
+      io.to(socket.id).emit('dump_received', {
+        tiles: newTiles,
+        dumpedLetter: normalizedLetter,
+        clientTileId: typeof clientTileId === 'string' ? clientTileId : null
+      });
 
       io.to(roomId).emit('room_state_updated', getRoomState(room));
       console.log(`${socket.id} dumped ${letter} in room ${roomId}`);
@@ -362,7 +511,7 @@ io.on('connection', (socket) => {
     room.inspectingPlayer = socket.id;
     room.inspectingBoardTiles = sanitizedBoard;
     room.inspectingJudges = Object.values(room.players)
-      .filter((player) => !player.isOut && player.id !== socket.id)
+      .filter((player) => !player.isOut && player.id !== socket.id && player.connected !== false)
       .map((player) => player.id);
     room.inspectionVotes = {};
 
@@ -406,7 +555,9 @@ io.on('connection', (socket) => {
     console.log('User disconnected:', socket.id);
 
     for (const roomId in rooms) {
-      removePlayerFromRoom(roomId, socket.id);
+      if (rooms[roomId].players[socket.id]) {
+        scheduleDisconnectRemoval(roomId, socket.id);
+      }
     }
   });
 });

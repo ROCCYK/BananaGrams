@@ -64,6 +64,43 @@
   gap: 1rem;
 }
 
+.player-roster {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  padding: 0.6rem 1rem;
+  background: rgba(10, 10, 10, 0.45);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.player-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.35rem 0.6rem;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  font-size: 0.85rem;
+}
+
+.connection-badge {
+  font-size: 0.75rem;
+  padding: 0.15rem 0.45rem;
+  border-radius: 999px;
+  font-weight: 700;
+}
+
+.connection-badge.connected {
+  background: rgba(74, 222, 128, 0.2);
+  color: #86efac;
+}
+
+.connection-badge.reconnecting {
+  background: rgba(251, 191, 36, 0.2);
+  color: #facc15;
+}
+
 .btn-peel {
   background-color: #ff3b3b;
   color: white;
