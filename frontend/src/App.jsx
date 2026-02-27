@@ -39,6 +39,7 @@ const GRID_SNAP_RADIUS = 26;
 const NEIGHBOR_SNAP_TOLERANCE = 28;
 const ALIGNMENT_TOLERANCE = 22;
 const WORLD_LIMIT = 5000;
+const MOBILE_DEFAULT_SCALE = 0.85;
 
 const clamp = (value, min, max) => Math.min(Math.max(value, min), max);
 
@@ -50,6 +51,22 @@ const getBoardDimensions = () => {
   }
 
   return { width: window.innerWidth, height: window.innerHeight };
+};
+
+const getDefaultCamera = () => {
+  const isMobileViewport =
+    window.matchMedia('(max-width: 900px)').matches ||
+    window.matchMedia('(pointer: coarse)').matches;
+
+  if (!isMobileViewport) {
+    return { x: 0, y: 0, scale: 1 };
+  }
+
+  const { width, height } = getBoardDimensions();
+  const centerOffsetX = (width * (1 - MOBILE_DEFAULT_SCALE)) / 2;
+  const centerOffsetY = (height * (1 - MOBILE_DEFAULT_SCALE)) / 2;
+
+  return { x: centerOffsetX, y: centerOffsetY, scale: MOBILE_DEFAULT_SCALE };
 };
 
 const getCenteredDealPositions = (count) => {
@@ -165,7 +182,7 @@ function App() {
     inspectionVotes: {}
   });
   const [tiles, setTiles] = useState({});
-  const [camera, setCamera] = useState({ x: 0, y: 0, scale: 1 });
+  const [camera, setCamera] = useState(() => getDefaultCamera());
   const [panMode, setPanMode] = useState(false);
   const [activeId, setActiveId] = useState(null);
   const [pendingDumpTileId, setPendingDumpTileId] = useState(null);
@@ -224,7 +241,7 @@ function App() {
       }
 
       setTiles(initialTiles);
-      setCamera({ x: 0, y: 0, scale: 1 });
+      setCamera(getDefaultCamera());
       setActiveId(null);
       setPendingDumpTileId(null);
       setGameOver(null);
@@ -630,7 +647,13 @@ function App() {
         onDragStart={handleDragStart}
         onDragEnd={handleDragEnd}
       >
-        <Board camera={camera} setCamera={setCamera} panMode={panMode} setPanMode={setPanMode}>
+        <Board
+          camera={camera}
+          setCamera={setCamera}
+          panMode={panMode}
+          setPanMode={setPanMode}
+          defaultCamera={getDefaultCamera()}
+        >
           {Object.values(tiles).map((tile) => (
             <Tile
               key={tile.id}

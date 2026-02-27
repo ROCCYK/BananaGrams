@@ -7,7 +7,7 @@ const ZOOM_STEP = 0.12;
 
 const clamp = (value, min, max) => Math.min(Math.max(value, min), max);
 
-export function Board({ children, camera, setCamera, panMode, setPanMode }) {
+export function Board({ children, camera, setCamera, panMode, setPanMode, defaultCamera }) {
     const { isOver, setNodeRef } = useDroppable({
         id: 'board-droppable',
     });
@@ -132,7 +132,7 @@ export function Board({ children, camera, setCamera, panMode, setPanMode }) {
                 >
                     -
                 </button>
-                <button type="button" disabled={!panMode} onClick={() => setCamera({ x: 0, y: 0, scale: 1 })}>Reset</button>
+                <button type="button" disabled={!panMode} onClick={() => setCamera(defaultCamera ?? { x: 0, y: 0, scale: 1 })}>Reset</button>
             </div>
             <div
                 className="camera-scene"

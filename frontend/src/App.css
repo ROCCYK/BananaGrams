@@ -14,6 +14,7 @@
   flex-direction: column;
   height: 100%;
   width: 100%;
+  min-height: 0;
 }
 
 .lobby {
@@ -427,10 +428,11 @@
   }
 
   .pregame-rules {
-    margin: 0.6rem 0.7rem;
-    max-height: 42vh;
-    padding: 0.85rem 0.9rem;
-    font-size: 0.9rem;
+    margin: 0.5rem 0.65rem;
+    max-height: min(34dvh, 280px);
+    padding: 0.8rem 0.85rem;
+    font-size: 0.88rem;
+    line-height: 1.35;
   }
 
   .player-chip {
@@ -445,6 +447,8 @@
   .camera-controls {
     gap: 0.28rem;
     padding: 0.2rem;
+    right: max(0.6rem, env(safe-area-inset-right));
+    bottom: max(0.6rem, env(safe-area-inset-bottom));
   }
 
   .camera-controls button {
@@ -452,6 +456,20 @@
     height: 1.95rem;
     font-size: 0.78rem;
     padding: 0 0.45rem;
+  }
+}
+
+/* iOS Safari often reports env(safe-area-inset-bottom)=0 outside standalone mode.
+   Lift floating controls so they stay above browser bottom bars. */
+@supports (-webkit-touch-callout: none) {
+  @media (max-width: 900px) and (pointer: coarse) {
+    .board-container {
+      padding-bottom: 4.8rem;
+    }
+
+    .camera-controls {
+      bottom: max(4.2rem, calc(env(safe-area-inset-bottom) + 0.6rem));
+    }
   }
 }
 
