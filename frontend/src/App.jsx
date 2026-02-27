@@ -12,7 +12,10 @@ import { Tile } from './components/Tile';
 import { Board } from './components/Board';
 import './App.css';
 
-const socket = io('http://localhost:3001');
+const SOCKET_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+const socket = io(SOCKET_URL, {
+  transports: ['websocket', 'polling']
+});
 
 const getOrCreateRejoinKey = (roomId, playerName) => {
   const roomKey = roomId.trim().toLowerCase();

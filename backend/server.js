@@ -4,14 +4,26 @@ const http = require('http');
 const cors = require('cors');
 
 const app = express();
-app.use(cors());
+const allowedOrigins = (process.env.CORS_ORIGIN || '*')
+  .split(',')
+  .map((origin) => origin.trim())
+  .filter(Boolean);
+
+app.use(cors({
+  origin: allowedOrigins.includes('*') ? true : allowedOrigins,
+  methods: ['GET', 'POST']
+}));
 
 const server = http.createServer(app);
 const io = new Server(server, {
   cors: {
-    origin: '*',
+    origin: allowedOrigins.includes('*') ? true : allowedOrigins,
     methods: ['GET', 'POST']
   }
+});
+
+app.get('/healthz', (_req, res) => {
+  res.status(200).json({ ok: true });
 });
 
 // A=13 B=3 C=3 D=6 E=18 F=3 G=4 H=3 I=12 J=2 K=2 L=5 M=3 N=8 O=11 P=3 Q=2 R=9 S=6 T=9 U=6 V=3 W=3 X=2 Y=3 Z=2
