@@ -77,6 +77,35 @@
   border-bottom: 1px solid rgba(255, 255, 255, 0.1);
 }
 
+.pregame-rules {
+  margin: 0.8rem 1rem;
+  max-height: min(48vh, 460px);
+  overflow: auto;
+  padding: 1rem 1.1rem;
+  border-radius: 12px;
+  border: 1px solid rgba(250, 219, 95, 0.35);
+  background: rgba(9, 11, 18, 0.82);
+  backdrop-filter: blur(8px);
+  line-height: 1.45;
+}
+
+.pregame-rules h2 {
+  margin: 0 0 0.6rem;
+  color: #fadb5f;
+}
+
+.pregame-rules p {
+  margin: 0.45rem 0;
+}
+
+.pregame-rules ul {
+  margin: 0.35rem 0 0.6rem 1.1rem;
+}
+
+.pregame-rules li {
+  margin: 0.2rem 0;
+}
+
 .player-chip {
   display: inline-flex;
   align-items: center;
@@ -395,6 +424,13 @@
     overflow-x: auto;
     -webkit-overflow-scrolling: touch;
     padding: 0.45rem max(0.7rem, env(safe-area-inset-right)) 0.45rem max(0.7rem, env(safe-area-inset-left));
+  }
+
+  .pregame-rules {
+    margin: 0.6rem 0.7rem;
+    max-height: 42vh;
+    padding: 0.85rem 0.9rem;
+    font-size: 0.9rem;
   }
 
   .player-chip {

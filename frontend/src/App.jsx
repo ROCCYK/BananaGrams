@@ -555,6 +555,7 @@ function App() {
     vote
   }));
   const inspectionGrid = buildInspectionGrid(roomState.inspectingBoardTiles || []);
+  const showPregameRules = !isPlaying && !isInspecting && roomState.poolSize === 0;
 
   return (
     <div className="app-container">
@@ -598,6 +599,25 @@ function App() {
           </div>
         ))}
       </section>
+
+      {showPregameRules ? (
+        <section className="pregame-rules" aria-label="How To Play">
+          <h2>How To Play</h2>
+          <p>Place all 144 tiles face down in the center of the table. These tiles are called the BUNCH.</p>
+          <p>Everyone then takes tiles from the bunch and puts them in front of them, face-down. The number of tiles depends on player count:</p>
+          <ul>
+            <li>2-4 people: 21 letters each</li>
+            <li>5-6 people: 15 letters each</li>
+            <li>7 people: 11 letters each</li>
+          </ul>
+          <p>Once everyone is ready, any player can start by saying "SPLIT!". Everyone flips tiles face up and builds their own connected crossword grid.</p>
+          <p>Words can be horizontal or vertical (left-to-right or top-to-bottom). Rearranging is allowed. There are no turns, everyone plays at the same time.</p>
+          <p>When you use all your letters, call "PEEL!". Every active player takes one tile from the bunch.</p>
+          <p>If you have a troublesome letter, call "DUMP!" to return it to the bunch and take 3 new letters. This affects only you.</p>
+          <p>When the bunch has fewer tiles than active players, the first player with no letters calls "BANANAS!".</p>
+          <p>Other players inspect the board. If words are valid, that player wins. If not, that player is a "ROTTEN BANANA", returns all tiles to the bunch, and the game continues.</p>
+        </section>
+      ) : null}
 
       {myPlayer.isOut ? (
         <div style={{ padding: '10px', background: 'rgba(255,50,50,0.8)', color: 'white', fontWeight: 'bold' }}>
