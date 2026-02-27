@@ -1,5 +1,8 @@
 # 🍌 Bananagrams (Realtime Web App)
 
+[![Play Live](https://img.shields.io/badge/Play-Live%20Demo-FADB5F?style=for-the-badge&logo=googlechrome&logoColor=111111)](https://bananagrams-frontend-0n1g.onrender.com)
+
+
 Multiplayer Bananagrams-style game built with:
 - React + Vite (frontend)
 - Node.js + Socket.IO (backend)
