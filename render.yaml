@@ -3,7 +3,6 @@ services:
     name: bananagrams-backend
     env: node
     rootDir: backend
-    plan: free
     buildCommand: npm ci
     startCommand: npm run start
     healthCheckPath: /healthz
@@ -18,7 +17,6 @@ services:
     name: bananagrams-frontend
     env: static
     rootDir: frontend
-    plan: free
     buildCommand: npm ci && npm run build
     staticPublishPath: dist
     autoDeploy: true
