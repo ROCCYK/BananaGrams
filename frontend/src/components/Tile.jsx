@@ -1,10 +1,11 @@
 import { useDraggable } from '@dnd-kit/core';
 import { CSS } from '@dnd-kit/utilities';
 
-export function Tile({ id, letter, left, top, revealed, onReveal }) {
+export function Tile({ id, letter, left, top, revealed, onReveal, dragDisabled = false }) {
     const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
         id: id,
-        data: { id, letter }
+        data: { id, letter },
+        disabled: dragDisabled
     });
 
     const style = {
@@ -13,18 +14,18 @@ export function Tile({ id, letter, left, top, revealed, onReveal }) {
         top: `${top}px`,
         transform: CSS.Translate.toString(transform),
         zIndex: isDragging ? 10 : 1,
-        opacity: isDragging ? 0.8 : 1,
-        cursor: isDragging ? 'grabbing' : 'grab',
+        opacity: isDragging ? 0 : 1,
+        cursor: dragDisabled ? 'default' : (isDragging ? 'grabbing' : 'grab'),
     };
 
     return (
         <div
             ref={setNodeRef}
             style={style}
-            {...listeners}
-            {...attributes}
+            {...(dragDisabled ? {} : listeners)}
+            {...(dragDisabled ? {} : attributes)}
             onClick={(event) => {
-                if (event.button === 0 && !isDragging && !revealed && typeof onReveal === 'function') {
+                if (!dragDisabled && event.button === 0 && !isDragging && !revealed && typeof onReveal === 'function') {
                     onReveal(id);
                 }
             }}

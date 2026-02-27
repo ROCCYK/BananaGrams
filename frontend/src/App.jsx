@@ -7,7 +7,6 @@ import {
   useSensors,
   DragOverlay,
 } from '@dnd-kit/core';
-import { restrictToWindowEdges } from '@dnd-kit/modifiers';
 
 import { Tile } from './components/Tile';
 import { Board } from './components/Board';
@@ -36,6 +35,7 @@ const DEAL_COLUMNS = 7;
 const GRID_SNAP_RADIUS = 26;
 const NEIGHBOR_SNAP_TOLERANCE = 28;
 const ALIGNMENT_TOLERANCE = 22;
+const WORLD_LIMIT = 5000;
 
 const clamp = (value, min, max) => Math.min(Math.max(value, min), max);
 
@@ -162,10 +162,27 @@ function App() {
     inspectionVotes: {}
   });
   const [tiles, setTiles] = useState({});
+  const [camera, setCamera] = useState({ x: 0, y: 0, scale: 1 });
+  const [panMode, setPanMode] = useState(false);
   const [activeId, setActiveId] = useState(null);
   const [pendingDumpTileId, setPendingDumpTileId] = useState(null);
   const pendingDumpTileIdRef = useRef(null);
   const [gameOver, setGameOver] = useState(null);
+
+  useEffect(() => {
+    if (panMode) {
+      document.body.style.userSelect = 'none';
+      document.body.style.webkitUserSelect = 'none';
+    } else {
+      document.body.style.userSelect = '';
+      document.body.style.webkitUserSelect = '';
+    }
+
+    return () => {
+      document.body.style.userSelect = '';
+      document.body.style.webkitUserSelect = '';
+    };
+  }, [panMode]);
 
   useEffect(() => {
     socket.on('room_state_updated', (state) => {
@@ -189,6 +206,7 @@ function App() {
       });
 
       setTiles(initialTiles);
+      setCamera({ x: 0, y: 0, scale: 1 });
       setActiveId(null);
       setPendingDumpTileId(null);
       setGameOver(null);
@@ -402,10 +420,10 @@ function App() {
       const tile = prev[active.id];
       if (!tile) return prev;
 
-      const baseLeft = tile.left + delta.x;
-      const baseTop = tile.top + delta.y;
-      const maxLeft = window.innerWidth - TILE_SIZE;
-      const maxTop = window.innerHeight - TILE_SIZE;
+      const adjustedDeltaX = delta.x / camera.scale;
+      const adjustedDeltaY = delta.y / camera.scale;
+      const baseLeft = tile.left + adjustedDeltaX;
+      const baseTop = tile.top + adjustedDeltaY;
       const others = Object.values(prev).filter((t) => t.id !== active.id);
 
       const isOccupied = (left, top) => others.some((other) => other.left === left && other.top === top);
@@ -443,8 +461,8 @@ function App() {
         ...prev,
         [active.id]: {
           ...tile,
-          left: clamp(nextLeft, 0, maxLeft),
-          top: clamp(nextTop, 0, maxTop),
+          left: clamp(nextLeft, -WORLD_LIMIT, WORLD_LIMIT),
+          top: clamp(nextTop, -WORLD_LIMIT, WORLD_LIMIT),
           placed: true,
         }
       };
@@ -544,11 +562,10 @@ function App() {
 
       <DndContext
         sensors={sensors}
-        modifiers={[restrictToWindowEdges]}
         onDragStart={handleDragStart}
         onDragEnd={handleDragEnd}
       >
-        <Board>
+        <Board camera={camera} setCamera={setCamera} panMode={panMode} setPanMode={setPanMode}>
           {Object.values(tiles).map((tile) => (
             <Tile
               key={tile.id}
@@ -558,13 +575,17 @@ function App() {
               top={tile.top}
               revealed={Boolean(tile.revealed)}
               onReveal={handleRevealTile}
+              dragDisabled={panMode}
             />
           ))}
         </Board>
 
         <DragOverlay>
           {activeId && tiles[activeId] ? (
-            <div className={`tile dragging ${tiles[activeId].revealed ? '' : 'facedown'}`}>
+            <div
+              className={`tile dragging overlay-tile ${tiles[activeId].revealed ? '' : 'facedown'}`}
+              style={{ transform: `scale(${camera.scale})`, transformOrigin: 'top left' }}
+            >
               {tiles[activeId].revealed ? tiles[activeId].letter : ''}
             </div>
           ) : null}

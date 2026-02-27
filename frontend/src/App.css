@@ -134,12 +134,56 @@
   flex: 1;
   position: relative;
   overflow: hidden;
+  touch-action: none;
   /* Drag boundaries are constrained or infinite-feeling */
   background-image:
     radial-gradient(rgba(255, 255, 255, 0.05) 1px, transparent 1px),
     radial-gradient(rgba(255, 255, 255, 0.05) 1px, transparent 1px);
   background-size: 40px 40px;
   background-position: 0 0, 20px 20px;
+}
+
+.board-container.panning {
+  cursor: grabbing;
+}
+
+.camera-scene {
+  position: absolute;
+  inset: 0;
+  transform-origin: 0 0;
+  will-change: transform;
+}
+
+.camera-controls {
+  position: absolute;
+  right: 0.8rem;
+  bottom: 0.8rem;
+  z-index: 120;
+  display: flex;
+  gap: 0.4rem;
+  background: rgba(18, 18, 18, 0.75);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 999px;
+  padding: 0.25rem;
+}
+
+.camera-controls button {
+  min-width: 2rem;
+  height: 2rem;
+  padding: 0 0.65rem;
+  font-size: 0.85rem;
+}
+
+.camera-controls button.active {
+  background: #fadb5f;
+  color: #111;
+  border: 2px solid #ffe889;
+  box-shadow: 0 0 0 2px rgba(250, 219, 95, 0.25);
+}
+
+.camera-controls button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 
 /* Individual Tiles */
@@ -163,7 +207,11 @@
 }
 
 .tile.dragging {
-  box-shadow: 0 12px 24px rgba(0, 0, 0, 0.4), inset 0 2px 0 rgba(255, 255, 255, 0.8);
+  box-shadow: inset 0 2px 0 rgba(255, 255, 255, 0.8);
+}
+
+.overlay-tile.dragging {
+  box-shadow: inset 0 2px 0 rgba(255, 255, 255, 0.8);
 }
 
 .tile.facedown {
