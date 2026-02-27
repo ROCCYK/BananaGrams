@@ -1,7 +1,7 @@
 import { useDraggable } from '@dnd-kit/core';
 import { CSS } from '@dnd-kit/utilities';
 
-export function Tile({ id, letter, left, top, revealed, onReveal, dragDisabled = false }) {
+export function Tile({ id, letter, left, top, revealed, isNew = false, onReveal, dragDisabled = false }) {
     const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
         id: id,
         data: { id, letter },
@@ -29,7 +29,7 @@ export function Tile({ id, letter, left, top, revealed, onReveal, dragDisabled =
                     onReveal(id);
                 }
             }}
-            className={`tile ${isDragging ? 'dragging' : ''} ${revealed ? '' : 'facedown'}`}
+            className={`tile ${isDragging ? 'dragging' : ''} ${revealed ? '' : 'facedown'} ${isNew ? 'new-tile' : ''}`}
         >
             {revealed ? letter : ''}
         </div>

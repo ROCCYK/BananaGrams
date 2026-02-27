@@ -239,7 +239,8 @@ function App() {
           letter: tile,
           ...getOpenSpawnPositions(prev, 1)[0],
           placed: false,
-          revealed: true
+          revealed: true,
+          isNew: true
         }
       }));
     });
@@ -272,7 +273,8 @@ function App() {
             left: spawnPositions[index].left,
             top: spawnPositions[index].top,
             placed: false,
-            revealed: true
+            revealed: true,
+            isNew: true
           };
         });
 
@@ -509,6 +511,7 @@ function App() {
           left: clamp(nextLeft, -WORLD_LIMIT, WORLD_LIMIT),
           top: clamp(nextTop, -WORLD_LIMIT, WORLD_LIMIT),
           placed: true,
+          isNew: false,
         }
       };
     });
@@ -616,6 +619,7 @@ function App() {
               left={tile.left}
               top={tile.top}
               revealed={Boolean(tile.revealed)}
+              isNew={Boolean(tile.isNew)}
               onReveal={handleRevealTile}
               dragDisabled={panMode}
             />
