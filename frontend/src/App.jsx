@@ -167,6 +167,7 @@ function App() {
   const [activeId, setActiveId] = useState(null);
   const [pendingDumpTileId, setPendingDumpTileId] = useState(null);
   const pendingDumpTileIdRef = useRef(null);
+  const boardSyncTimerRef = useRef(null);
   const [gameOver, setGameOver] = useState(null);
 
   useEffect(() => {
@@ -189,21 +190,35 @@ function App() {
       setRoomState(state);
     });
 
-    socket.on('game_started', ({ hand }) => {
+    socket.on('game_started', ({ hand, boardTiles, resumed }) => {
       const initialTiles = {};
-      const positions = getCenteredDealPositions(hand.length);
 
-      hand.forEach((letter, index) => {
-        const id = `tile-${Date.now()}-${index}`;
-        initialTiles[id] = {
-          id,
-          letter,
-          left: positions[index].left,
-          top: positions[index].top,
-          placed: false,
-          revealed: false
-        };
-      });
+      if (resumed && Array.isArray(boardTiles) && boardTiles.length === hand.length) {
+        boardTiles.forEach((tile, index) => {
+          const id = typeof tile.id === 'string' ? tile.id : `tile-restored-${Date.now()}-${index}`;
+          initialTiles[id] = {
+            id,
+            letter: tile.letter,
+            left: tile.left,
+            top: tile.top,
+            placed: true,
+            revealed: Boolean(tile.revealed)
+          };
+        });
+      } else {
+        const positions = getCenteredDealPositions(hand.length);
+        hand.forEach((letter, index) => {
+          const id = `tile-${Date.now()}-${index}`;
+          initialTiles[id] = {
+            id,
+            letter,
+            left: positions[index].left,
+            top: positions[index].top,
+            placed: false,
+            revealed: false
+          };
+        });
+      }
 
       setTiles(initialTiles);
       setCamera({ x: 0, y: 0, scale: 1 });
@@ -301,6 +316,33 @@ function App() {
       socket.off('error');
     };
   }, []);
+
+  useEffect(() => {
+    if (inLobby || !roomId || !socket.connected) return;
+
+    if (boardSyncTimerRef.current) {
+      clearTimeout(boardSyncTimerRef.current);
+    }
+
+    boardSyncTimerRef.current = setTimeout(() => {
+      const boardTiles = Object.values(tiles).map((tile) => ({
+        id: tile.id,
+        letter: tile.letter,
+        left: tile.left,
+        top: tile.top,
+        revealed: Boolean(tile.revealed)
+      }));
+
+      socket.emit('board_state_update', { roomId, boardTiles });
+    }, 120);
+
+    return () => {
+      if (boardSyncTimerRef.current) {
+        clearTimeout(boardSyncTimerRef.current);
+        boardSyncTimerRef.current = null;
+      }
+    };
+  }, [tiles, roomId, inLobby]);
 
   const handleJoin = (e) => {
     e.preventDefault();
@@ -532,10 +574,7 @@ function App() {
                   Dump Selected
                 </button>
               ) : null}
-              <button
-                onClick={handleBananas}
-                style={{ backgroundColor: '#ffdd00', color: 'black' }}
-              >
+              <button className="btn-bananas" onClick={handleBananas}>
                 BANANAS!
               </button>
             </>
