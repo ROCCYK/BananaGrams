@@ -437,12 +437,6 @@ function App() {
     resetToLobbyState();
   };
 
-  const handleReturnToLobby = () => {
-    socket.emit('leave_room', { roomId });
-    setRoomId('');
-    resetToLobbyState();
-  };
-
   const handleRevealTile = (tileId) => {
     setTiles((prev) => {
       const tile = prev[tileId];
@@ -808,7 +802,6 @@ function App() {
           <h1>{gameOver}</h1>
           <div className="game-over-actions">
             <button onClick={handleExitGame}>Exit Game</button>
-            <button onClick={handleReturnToLobby}>Return to Lobby</button>
           </div>
         </div>
       ) : null}
