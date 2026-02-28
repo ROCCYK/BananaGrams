@@ -39,7 +39,7 @@ const GRID_SNAP_RADIUS = 26;
 const NEIGHBOR_SNAP_TOLERANCE = 28;
 const ALIGNMENT_TOLERANCE = 22;
 const WORLD_LIMIT = 5000;
-const MOBILE_DEFAULT_SCALE = 0.85;
+const MOBILE_DEFAULT_SCALE = 0.5;
 
 const clamp = (value, min, max) => Math.min(Math.max(value, min), max);
 
@@ -53,12 +53,12 @@ const getBoardDimensions = () => {
   return { width: window.innerWidth, height: window.innerHeight };
 };
 
-const getDefaultCamera = () => {
-  const isMobileViewport =
-    window.matchMedia('(max-width: 900px)').matches ||
-    window.matchMedia('(pointer: coarse)').matches;
+const isMobileViewport = () =>
+  window.matchMedia('(max-width: 900px)').matches ||
+  window.matchMedia('(pointer: coarse)').matches;
 
-  if (!isMobileViewport) {
+const getDefaultCamera = () => {
+  if (!isMobileViewport()) {
     return { x: 0, y: 0, scale: 1 };
   }
 
@@ -67,6 +67,28 @@ const getDefaultCamera = () => {
   const centerOffsetY = (height * (1 - MOBILE_DEFAULT_SCALE)) / 2;
 
   return { x: centerOffsetX, y: centerOffsetY, scale: MOBILE_DEFAULT_SCALE };
+};
+
+const getCameraCenteredOnTiles = (tilesMap) => {
+  const tilesList = Object.values(tilesMap || {});
+  if (!tilesList.length) return getDefaultCamera();
+
+  const { width, height } = getBoardDimensions();
+  const scale = isMobileViewport() ? MOBILE_DEFAULT_SCALE : 1;
+
+  const minLeft = Math.min(...tilesList.map((tile) => tile.left));
+  const minTop = Math.min(...tilesList.map((tile) => tile.top));
+  const maxRight = Math.max(...tilesList.map((tile) => tile.left + TILE_SIZE));
+  const maxBottom = Math.max(...tilesList.map((tile) => tile.top + TILE_SIZE));
+
+  const tilesCenterX = (minLeft + maxRight) / 2;
+  const tilesCenterY = (minTop + maxBottom) / 2;
+
+  return {
+    x: (width / 2) - (tilesCenterX * scale),
+    y: (height / 2) - (tilesCenterY * scale),
+    scale
+  };
 };
 
 const getCenteredDealPositions = (count) => {
@@ -241,7 +263,7 @@ function App() {
       }
 
       setTiles(initialTiles);
-      setCamera(getDefaultCamera());
+      setCamera(getCameraCenteredOnTiles(initialTiles));
       setActiveId(null);
       setPendingDumpTileId(null);
       setGameOver(null);
