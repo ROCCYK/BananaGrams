@@ -6,6 +6,7 @@ import {
   useSensor,
   useSensors,
   DragOverlay,
+  useDroppable,
 } from '@dnd-kit/core';
 
 import { Tile } from './components/Tile';
@@ -34,7 +35,6 @@ const getOrCreateRejoinKey = (roomId, playerName) => {
 
 const TILE_SIZE = 60;
 const TILE_SPACING = 65;
-const DEAL_COLUMNS = 7;
 const GRID_SNAP_RADIUS = 26;
 const NEIGHBOR_SNAP_TOLERANCE = 28;
 const ALIGNMENT_TOLERANCE = 22;
@@ -70,7 +70,7 @@ const getDefaultCamera = () => {
 };
 
 const getCameraCenteredOnTiles = (tilesMap) => {
-  const tilesList = Object.values(tilesMap || {});
+  const tilesList = Object.values(tilesMap || {}).filter((tile) => tile.placed);
   if (!tilesList.length) return getDefaultCamera();
 
   const { width, height } = getBoardDimensions();
@@ -89,61 +89,6 @@ const getCameraCenteredOnTiles = (tilesMap) => {
     y: (height / 2) - (tilesCenterY * scale),
     scale
   };
-};
-
-const getCenteredDealPositions = (count) => {
-  const { width, height } = getBoardDimensions();
-  const columns = Math.max(1, Math.min(DEAL_COLUMNS, count));
-  const rows = Math.ceil(count / columns);
-  const layoutWidth = (columns - 1) * TILE_SPACING + TILE_SIZE;
-  const layoutHeight = (rows - 1) * TILE_SPACING + TILE_SIZE;
-  const startLeft = Math.max(0, (width - layoutWidth) / 2);
-  const startTop = Math.max(0, (height - layoutHeight) / 2);
-
-  return Array.from({ length: count }, (_, index) => {
-    const row = Math.floor(index / columns);
-    const col = index % columns;
-    return {
-      left: Math.round(startLeft + col * TILE_SPACING),
-      top: Math.round(startTop + row * TILE_SPACING)
-    };
-  });
-};
-
-const getOpenSpawnPositions = (existingTiles, count) => {
-  const occupied = new Set(
-    Object.values(existingTiles).map((tile) => `${Math.round(tile.left)},${Math.round(tile.top)}`)
-  );
-  const positions = [];
-  const centerLeft = Math.round((window.innerWidth / 2) / TILE_SPACING) * TILE_SPACING;
-  const centerTop = Math.round((window.innerHeight / 2) / TILE_SPACING) * TILE_SPACING;
-  const maxRadius = 20;
-
-  for (let radius = 0; radius <= maxRadius && positions.length < count; radius += 1) {
-    for (let dy = -radius; dy <= radius && positions.length < count; dy += 1) {
-      for (let dx = -radius; dx <= radius && positions.length < count; dx += 1) {
-        const onEdge = radius === 0 || Math.abs(dx) === radius || Math.abs(dy) === radius;
-        if (!onEdge) continue;
-
-        const left = centerLeft + dx * TILE_SPACING;
-        const top = centerTop + dy * TILE_SPACING;
-        const key = `${left},${top}`;
-        if (occupied.has(key)) continue;
-
-        occupied.add(key);
-        positions.push({ left, top });
-      }
-    }
-  }
-
-  while (positions.length < count) {
-    positions.push({
-      left: centerLeft + positions.length * TILE_SPACING,
-      top: centerTop
-    });
-  }
-
-  return positions;
 };
 
 const buildInspectionGrid = (boardTiles) => {
@@ -180,7 +125,7 @@ const buildInspectionGrid = (boardTiles) => {
 const snapToGrid = (value) => Math.round(value / TILE_SPACING) * TILE_SPACING;
 
 const buildSnappedBoardTiles = (tilesMap, includeLetters = false) =>
-  Object.values(tilesMap).map((tile) => {
+  Object.values(tilesMap).filter((tile) => tile.placed).map((tile) => {
     const snapped = {
       left: snapToGrid(tile.left),
       top: snapToGrid(tile.top)
@@ -211,6 +156,12 @@ function App() {
   const pendingDumpTileIdRef = useRef(null);
   const boardSyncTimerRef = useRef(null);
   const [gameOver, setGameOver] = useState(null);
+  const {
+    isOver: isHandDropOver,
+    setNodeRef: setHandDropRef,
+  } = useDroppable({
+    id: 'hand-droppable',
+  });
 
   useEffect(() => {
     if (panMode) {
@@ -244,26 +195,25 @@ function App() {
             left: tile.left,
             top: tile.top,
             placed: true,
-            revealed: Boolean(tile.revealed)
+            revealed: Boolean(tile.revealed),
+            order: index,
           };
         });
       } else {
-        const positions = getCenteredDealPositions(hand.length);
         hand.forEach((letter, index) => {
           const id = `tile-${Date.now()}-${index}`;
           initialTiles[id] = {
             id,
             letter,
-            left: positions[index].left,
-            top: positions[index].top,
             placed: false,
-            revealed: false
+            revealed: false,
+            order: index,
           };
         });
       }
 
       setTiles(initialTiles);
-      setCamera(getCameraCenteredOnTiles(initialTiles));
+      setCamera(resumed ? getCameraCenteredOnTiles(initialTiles) : getDefaultCamera());
       setActiveId(null);
       setPendingDumpTileId(null);
       setGameOver(null);
@@ -271,15 +221,16 @@ function App() {
 
     socket.on('peel_received', ({ tile }) => {
       const id = `tile-${Date.now()}`;
+      const order = Date.now();
       setTiles((prev) => ({
         ...prev,
         [id]: {
           id,
           letter: tile,
-          ...getOpenSpawnPositions(prev, 1)[0],
           placed: false,
           revealed: true,
-          isNew: true
+          isNew: true,
+          order,
         }
       }));
     });
@@ -302,18 +253,16 @@ function App() {
           }
         }
 
-        const spawnPositions = getOpenSpawnPositions(next, newTiles.length);
         const mappedTiles = {};
         newTiles.forEach((letter, index) => {
           const id = `tile-${Date.now()}-${index}`;
           mappedTiles[id] = {
             id,
             letter,
-            left: spawnPositions[index].left,
-            top: spawnPositions[index].top,
             placed: false,
             revealed: true,
-            isNew: true
+            isNew: true,
+            order: Date.now() + index,
           };
         });
 
@@ -369,13 +318,15 @@ function App() {
     }
 
     boardSyncTimerRef.current = setTimeout(() => {
-      const boardTiles = Object.values(tiles).map((tile) => ({
+      const boardTiles = Object.values(tiles)
+        .filter((tile) => tile.placed)
+        .map((tile) => ({
         id: tile.id,
         letter: tile.letter,
         left: tile.left,
         top: tile.top,
         revealed: Boolean(tile.revealed)
-      }));
+        }));
 
       socket.emit('board_state_update', { roomId, boardTiles });
     }, 120);
@@ -500,17 +451,49 @@ function App() {
   };
 
   const handleDragEnd = (event) => {
-    const { active, delta } = event;
+    const { active, delta, over } = event;
+    const droppedOverId = over?.id;
 
     setTiles((prev) => {
       const tile = prev[active.id];
       if (!tile) return prev;
 
-      const adjustedDeltaX = delta.x / camera.scale;
-      const adjustedDeltaY = delta.y / camera.scale;
-      const baseLeft = tile.left + adjustedDeltaX;
-      const baseTop = tile.top + adjustedDeltaY;
-      const others = Object.values(prev).filter((t) => t.id !== active.id);
+      if (droppedOverId === 'hand-droppable') {
+        return {
+          ...prev,
+          [active.id]: {
+            ...tile,
+            placed: false,
+            isNew: false,
+            order: tile.order ?? Date.now(),
+          }
+        };
+      }
+
+      if (droppedOverId !== 'board-droppable') {
+        return prev;
+      }
+
+      let baseLeft;
+      let baseTop;
+
+      if (tile.placed) {
+        const adjustedDeltaX = delta.x / camera.scale;
+        const adjustedDeltaY = delta.y / camera.scale;
+        baseLeft = tile.left + adjustedDeltaX;
+        baseTop = tile.top + adjustedDeltaY;
+      } else {
+        const board = document.querySelector('.board-container');
+        const translatedRect = active.rect.current.translated || active.rect.current.initial;
+        if (!board || !translatedRect) return prev;
+        const boardRect = board.getBoundingClientRect();
+        const dropCenterX = translatedRect.left + (translatedRect.width / 2);
+        const dropCenterY = translatedRect.top + (translatedRect.height / 2);
+        baseLeft = ((dropCenterX - boardRect.left - camera.x) / camera.scale) - (TILE_SIZE / 2);
+        baseTop = ((dropCenterY - boardRect.top - camera.y) / camera.scale) - (TILE_SIZE / 2);
+      }
+
+      const others = Object.values(prev).filter((t) => t.id !== active.id && t.placed);
 
       const isOccupied = (left, top) => others.some((other) => other.left === left && other.top === top);
 
@@ -551,6 +534,7 @@ function App() {
           top: clamp(nextTop, -WORLD_LIMIT, WORLD_LIMIT),
           placed: true,
           isNew: false,
+          order: tile.order ?? Date.now(),
         }
       };
     });
@@ -586,6 +570,10 @@ function App() {
   const isJudge = (roomState.inspectingJudges || []).includes(socket.id);
   const hasVoted = Boolean(roomState.inspectionVotes?.[socket.id]);
   const allTilesRevealed = Object.values(tiles).every((tile) => tile.revealed);
+  const boardTiles = Object.values(tiles).filter((tile) => tile.placed);
+  const handTiles = Object.values(tiles)
+    .filter((tile) => !tile.placed)
+    .sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
   const playerEntries = Object.values(roomState.players || {})
     .sort((a, b) => a.name.localeCompare(b.name));
   const voteEntries = Object.entries(roomState.inspectionVotes || {}).map(([playerId, vote]) => ({
@@ -669,33 +657,64 @@ function App() {
         onDragStart={handleDragStart}
         onDragEnd={handleDragEnd}
       >
-        <Board
-          camera={camera}
-          setCamera={setCamera}
-          panMode={panMode}
-          setPanMode={setPanMode}
-          defaultCamera={getDefaultCamera()}
-        >
-          {Object.values(tiles).map((tile) => (
-            <Tile
-              key={tile.id}
-              id={tile.id}
-              letter={tile.letter}
-              left={tile.left}
-              top={tile.top}
-              revealed={Boolean(tile.revealed)}
-              isNew={Boolean(tile.isNew)}
-              onReveal={handleRevealTile}
-              dragDisabled={panMode}
-            />
-          ))}
-        </Board>
+        <div className="play-area">
+          <Board
+            camera={camera}
+            setCamera={setCamera}
+            panMode={panMode}
+            setPanMode={setPanMode}
+            defaultCamera={getDefaultCamera()}
+          >
+            {boardTiles.map((tile) => (
+              <Tile
+                key={tile.id}
+                id={tile.id}
+                letter={tile.letter}
+                left={tile.left}
+                top={tile.top}
+                revealed={Boolean(tile.revealed)}
+                isNew={Boolean(tile.isNew)}
+                onReveal={handleRevealTile}
+                dragDisabled={panMode}
+                selected={activeId === tile.id}
+                onSelect={setActiveId}
+              />
+            ))}
+          </Board>
+
+          <section
+            ref={setHandDropRef}
+            className={`hand-tray ${isHandDropOver ? 'drop-over' : ''}`}
+            aria-label="Player hand"
+          >
+            <div className="hand-tray-header">Hand</div>
+            <div className="hand-tray-tiles">
+              {handTiles.map((tile) => (
+                <Tile
+                  key={tile.id}
+                  id={tile.id}
+                  letter={tile.letter}
+                  revealed={Boolean(tile.revealed)}
+                  isNew={Boolean(tile.isNew)}
+                  onReveal={handleRevealTile}
+                  dragDisabled={panMode}
+                  inHand
+                  selected={activeId === tile.id}
+                  onSelect={setActiveId}
+                />
+              ))}
+            </div>
+          </section>
+        </div>
 
         <DragOverlay>
           {activeId && tiles[activeId] ? (
             <div
               className={`tile dragging overlay-tile ${tiles[activeId].revealed ? '' : 'facedown'}`}
-              style={{ transform: `scale(${camera.scale})`, transformOrigin: 'top left' }}
+              style={{
+                transform: `scale(${tiles[activeId].placed ? camera.scale : 1})`,
+                transformOrigin: 'top left'
+              }}
             >
               {tiles[activeId].revealed ? tiles[activeId].letter : ''}
             </div>
