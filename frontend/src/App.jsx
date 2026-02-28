@@ -186,7 +186,15 @@ function App() {
     socket.on('game_started', ({ hand, tiles: restoredTiles, resumed }) => {
       const initialTiles = {};
 
-      if (resumed && Array.isArray(restoredTiles) && restoredTiles.length === hand.length) {
+      const canRestoreTiles =
+        resumed &&
+        Array.isArray(restoredTiles) &&
+        (
+          restoredTiles.length === hand.length ||
+          (hand.length === 0 && restoredTiles.length > 0)
+        );
+
+      if (canRestoreTiles) {
         restoredTiles.forEach((tile, index) => {
           const id = typeof tile.id === 'string' ? tile.id : `tile-restored-${Date.now()}-${index}`;
           initialTiles[id] = {
@@ -279,7 +287,18 @@ function App() {
 
     socket.on('rotten_banana_declared', ({ rottenId, rottenName }) => {
       if (rottenId === socket.id) {
-        setTiles({});
+        setTiles((prev) => {
+          const next = {};
+          Object.values(prev)
+            .filter((tile) => tile.placed)
+            .forEach((tile) => {
+              next[tile.id] = {
+                ...tile,
+                revealed: true
+              };
+            });
+          return next;
+        });
         alert('You are the Rotten Banana! Your tiles have been returned to the bunch.');
       } else {
         alert(`${rottenName} was a Rotten Banana! Game resumes!`);
