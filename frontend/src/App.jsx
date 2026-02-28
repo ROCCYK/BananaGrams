@@ -183,20 +183,20 @@ function App() {
       setRoomState(state);
     });
 
-    socket.on('game_started', ({ hand, boardTiles, resumed }) => {
+    socket.on('game_started', ({ hand, tiles: restoredTiles, resumed }) => {
       const initialTiles = {};
 
-      if (resumed && Array.isArray(boardTiles) && boardTiles.length === hand.length) {
-        boardTiles.forEach((tile, index) => {
+      if (resumed && Array.isArray(restoredTiles) && restoredTiles.length === hand.length) {
+        restoredTiles.forEach((tile, index) => {
           const id = typeof tile.id === 'string' ? tile.id : `tile-restored-${Date.now()}-${index}`;
           initialTiles[id] = {
             id,
             letter: tile.letter,
-            left: tile.left,
-            top: tile.top,
-            placed: true,
+            left: typeof tile.left === 'number' ? tile.left : 0,
+            top: typeof tile.top === 'number' ? tile.top : 0,
+            placed: Boolean(tile.placed),
             revealed: Boolean(tile.revealed),
-            order: index,
+            order: typeof tile.order === 'number' ? tile.order : index,
           };
         });
       } else {
@@ -318,17 +318,18 @@ function App() {
     }
 
     boardSyncTimerRef.current = setTimeout(() => {
-      const boardTiles = Object.values(tiles)
-        .filter((tile) => tile.placed)
+      const playerTiles = Object.values(tiles)
         .map((tile) => ({
         id: tile.id,
         letter: tile.letter,
-        left: tile.left,
-        top: tile.top,
-        revealed: Boolean(tile.revealed)
+        left: typeof tile.left === 'number' ? tile.left : 0,
+        top: typeof tile.top === 'number' ? tile.top : 0,
+        placed: Boolean(tile.placed),
+        revealed: Boolean(tile.revealed),
+        order: typeof tile.order === 'number' ? tile.order : 0
         }));
 
-      socket.emit('board_state_update', { roomId, boardTiles });
+      socket.emit('board_state_update', { roomId, tiles: playerTiles });
     }, 120);
 
     return () => {

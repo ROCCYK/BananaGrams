@@ -139,26 +139,31 @@ function getRoomState(room) {
   };
 }
 
-function sanitizeBoardTiles(boardTiles) {
-  if (!Array.isArray(boardTiles)) return [];
+function sanitizePlayerTiles(tiles) {
+  if (!Array.isArray(tiles)) return [];
 
-  return boardTiles
+  return tiles
     .filter((tile) =>
       tile &&
       typeof tile.id === 'string' &&
       typeof tile.letter === 'string' &&
       tile.letter.length === 1 &&
-      typeof tile.left === 'number' &&
-      typeof tile.top === 'number' &&
-      typeof tile.revealed === 'boolean'
+      typeof tile.revealed === 'boolean' &&
+      typeof tile.placed === 'boolean' &&
+      (
+        tile.placed === false ||
+        (typeof tile.left === 'number' && typeof tile.top === 'number')
+      )
     )
     .slice(0, 300)
     .map((tile) => ({
       id: tile.id,
       letter: tile.letter.toUpperCase(),
-      left: tile.left,
-      top: tile.top,
-      revealed: tile.revealed
+      revealed: tile.revealed,
+      placed: tile.placed,
+      left: tile.placed ? tile.left : 0,
+      top: tile.placed ? tile.top : 0,
+      order: typeof tile.order === 'number' ? tile.order : 0
     }));
 }
 
@@ -387,15 +392,11 @@ io.on('connection', (socket) => {
       }
 
       io.to(roomId).emit('room_state_updated', getRoomState(room));
-      const restoredBoard = room.players[socket.id].boardTiles || [];
+      const restoredTiles = room.players[socket.id].tiles || [];
       const restoredHand = room.players[socket.id].hand || [];
-      const boardTiles =
-        restoredBoard.length === restoredHand.length
-          ? restoredBoard
-          : [];
       io.to(socket.id).emit('game_started', {
         hand: [...restoredHand],
-        boardTiles,
+        tiles: restoredTiles,
         resumed: true
       });
       console.log(`${room.players[socket.id].name} rejoined room ${roomId}`);
@@ -407,7 +408,7 @@ io.on('connection', (socket) => {
       name: playerName || `Player ${Object.keys(room.players).length + 1}`,
       rejoinKey: normalizedRejoinKey,
       hand: [],
-      boardTiles: [],
+      tiles: [],
       handSize: 0,
       isOut: false,
       connected: true,
@@ -435,7 +436,7 @@ io.on('connection', (socket) => {
     players.forEach((player) => {
       room.players[player.id].isOut = false;
       room.players[player.id].connected = room.players[player.id].connected !== false;
-      room.players[player.id].boardTiles = [];
+      room.players[player.id].tiles = [];
       const hand = room.pool.splice(0, initialTiles);
       room.players[player.id].hand = hand;
       room.players[player.id].handSize = hand.length;
@@ -592,16 +593,16 @@ io.on('connection', (socket) => {
     maybeResolveInspection(roomId);
   });
 
-  socket.on('board_state_update', ({ roomId, boardTiles }) => {
+  socket.on('board_state_update', ({ roomId, tiles }) => {
     const room = rooms[roomId];
     if (!room) return;
     const player = room.players[socket.id];
     if (!player) return;
 
-    const sanitized = sanitizeBoardTiles(boardTiles);
-    if (sanitized.length > 0 && sanitized.length !== player.handSize) return;
+    const sanitized = sanitizePlayerTiles(tiles);
+    if (player.handSize > 0 && sanitized.length !== player.handSize) return;
 
-    player.boardTiles = sanitized;
+    player.tiles = sanitized;
   });
 
   socket.on('leave_room', ({ roomId }) => {
