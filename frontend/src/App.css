@@ -262,15 +262,19 @@
 
 .hand-tray-tiles {
   display: flex;
+  flex-wrap: nowrap;
   gap: 0.5rem;
   overflow-x: auto;
   overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-x;
   min-height: 70px;
   padding-bottom: 0.2rem;
 }
 
 .hand-tray-tiles .tile.in-hand {
   flex: 0 0 auto;
+  touch-action: pan-x;
 }
 
 /* Individual Tiles */
