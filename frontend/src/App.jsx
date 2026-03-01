@@ -47,7 +47,7 @@ const MOBILE_DEFAULT_SCALE = 0.5;
 const BOARD_SYNC_INTERVAL_MS = 700;
 const SESSION_ROOM_ID_KEY = 'bananagrams.session.roomId';
 const SESSION_PLAYER_NAME_KEY = 'bananagrams.session.playerName';
-const TOUCH_DRAG_DELAY_MS = 40;
+const TOUCH_DRAG_DELAY_MS = 25;
 const TOUCH_DRAG_TOLERANCE_PX = 24;
 
 const clamp = (value, min, max) => Math.min(Math.max(value, min), max);
