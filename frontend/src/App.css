@@ -300,6 +300,25 @@
   touch-action: pan-x;
 }
 
+.hand-collect-btn {
+  flex: 0 0 auto;
+  min-width: 84px;
+  height: 60px;
+  border-radius: 10px;
+  border: 1px solid rgba(250, 219, 95, 0.55);
+  background: linear-gradient(145deg, rgba(250, 219, 95, 0.18), rgba(226, 192, 52, 0.14));
+  color: #fadb5f;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  padding: 0 0.7rem;
+  white-space: nowrap;
+}
+
+.hand-collect-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
 /* Individual Tiles */
 .tile {
   width: 60px;

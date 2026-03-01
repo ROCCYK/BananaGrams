@@ -165,6 +165,58 @@ const findNearestFreeGridSpot = (occupiedKeys, left, top, maxRadius = 8) => {
   return null;
 };
 
+const getDisconnectedBoardTileIds = (tilesMap) => {
+  const placedTiles = Object.values(tilesMap || {}).filter((tile) => tile.placed);
+  if (placedTiles.length <= 1) return [];
+
+  const tileByKey = new Map(
+    placedTiles.map((tile) => [toGridKey(snapToGrid(tile.left), snapToGrid(tile.top)), tile])
+  );
+  const visited = new Set();
+  const components = [];
+
+  placedTiles.forEach((tile) => {
+    const startKey = toGridKey(snapToGrid(tile.left), snapToGrid(tile.top));
+    if (visited.has(startKey)) return;
+
+    const queue = [startKey];
+    const componentIds = [];
+    visited.add(startKey);
+
+    while (queue.length) {
+      const key = queue.shift();
+      const currentTile = tileByKey.get(key);
+      if (!currentTile) continue;
+      componentIds.push(currentTile.id);
+
+      const [leftStr, topStr] = key.split(',');
+      const left = Number(leftStr);
+      const top = Number(topStr);
+      const neighborKeys = [
+        toGridKey(left + TILE_SPACING, top),
+        toGridKey(left - TILE_SPACING, top),
+        toGridKey(left, top + TILE_SPACING),
+        toGridKey(left, top - TILE_SPACING),
+      ];
+
+      neighborKeys.forEach((neighborKey) => {
+        if (visited.has(neighborKey) || !tileByKey.has(neighborKey)) return;
+        visited.add(neighborKey);
+        queue.push(neighborKey);
+      });
+    }
+
+    if (componentIds.length) {
+      components.push(componentIds);
+    }
+  });
+
+  if (components.length <= 1) return [];
+
+  components.sort((a, b) => b.length - a.length);
+  return components.slice(1).flat();
+};
+
 const buildSnappedBoardTiles = (tilesMap, includeLetters = false) =>
   Object.values(tilesMap).filter((tile) => tile.placed).map((tile) => {
     const snapped = {
@@ -596,6 +648,38 @@ function App() {
     });
   };
 
+  const disconnectedBoardTileIds = getDisconnectedBoardTileIds(tiles);
+  const disconnectedBoardTileIdSet = new Set(disconnectedBoardTileIds);
+  const disconnectedBoardTileCount = disconnectedBoardTileIds.length;
+
+  const handleCollectDisconnectedTiles = () => {
+    if (!disconnectedBoardTileCount) return;
+
+    const baseOrder = Date.now();
+    setTiles((prev) => {
+      let orderOffset = 0;
+      const next = { ...prev };
+
+      disconnectedBoardTileIds.forEach((tileId) => {
+        const tile = prev[tileId];
+        if (!tile || !tile.placed) return;
+        next[tileId] = {
+          ...tile,
+          placed: false,
+          isNew: false,
+          order: baseOrder + orderOffset,
+        };
+        orderOffset += 1;
+      });
+
+      return next;
+    });
+
+    if (activeId && disconnectedBoardTileIdSet.has(activeId)) {
+      setActiveId(null);
+    }
+  };
+
   const sensors = useSensors(
     useSensor(MouseSensor, {
       activationConstraint: {
@@ -895,6 +979,15 @@ function App() {
                   onSelect={setActiveId}
                 />
               ))}
+              <button
+                type="button"
+                className="hand-collect-btn"
+                onClick={handleCollectDisconnectedTiles}
+                disabled={!disconnectedBoardTileCount || panMode}
+                title={disconnectedBoardTileCount ? `Collect ${disconnectedBoardTileCount} disconnected tile(s)` : 'No disconnected tiles to collect'}
+              >
+                Collect{disconnectedBoardTileCount ? ` ${disconnectedBoardTileCount}` : ''}
+              </button>
             </div>
           </section>
         </div>
