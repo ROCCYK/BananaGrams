@@ -44,6 +44,8 @@ const ALIGNMENT_TOLERANCE = 22;
 const WORLD_LIMIT = 5000;
 const MOBILE_DEFAULT_SCALE = 0.5;
 const BOARD_SYNC_INTERVAL_MS = 700;
+const SESSION_ROOM_ID_KEY = 'bananagrams.session.roomId';
+const SESSION_PLAYER_NAME_KEY = 'bananagrams.session.playerName';
 
 const clamp = (value, min, max) => Math.min(Math.max(value, min), max);
 
@@ -195,10 +197,19 @@ const getBoardSyncSignature = (payload) =>
     ))
     .join(';');
 
+const readSessionValue = (key) => {
+  if (typeof window === 'undefined') return '';
+  return window.localStorage.getItem(key) || '';
+};
+
 function App() {
-  const [roomId, setRoomId] = useState('');
-  const [playerName, setPlayerName] = useState('');
-  const [inLobby, setInLobby] = useState(true);
+  const [roomId, setRoomId] = useState(() => readSessionValue(SESSION_ROOM_ID_KEY));
+  const [playerName, setPlayerName] = useState(() => readSessionValue(SESSION_PLAYER_NAME_KEY));
+  const [inLobby, setInLobby] = useState(() => {
+    const savedRoomId = readSessionValue(SESSION_ROOM_ID_KEY);
+    const savedPlayerName = readSessionValue(SESSION_PLAYER_NAME_KEY);
+    return !(savedRoomId && savedPlayerName);
+  });
   const [roomState, setRoomState] = useState({
     status: 'waiting',
     players: {},
@@ -231,6 +242,25 @@ function App() {
     inLobbyRef.current = inLobby;
     roomIdRef.current = roomId;
     playerNameRef.current = playerName;
+  }, [inLobby, roomId, playerName]);
+
+  useEffect(() => {
+    if (inLobby) return;
+    const activeRoomId = roomId.trim();
+    const activePlayerName = playerName.trim();
+    if (!activeRoomId || !activePlayerName) return;
+
+    const rejoinKey = getOrCreateRejoinKey(activeRoomId, activePlayerName);
+    if (!socket.connected) {
+      socket.connect();
+      return;
+    }
+
+    socket.emit('join_room', {
+      roomId: activeRoomId,
+      playerName: activePlayerName,
+      rejoinKey
+    });
   }, [inLobby, roomId, playerName]);
 
   useEffect(() => {
@@ -467,11 +497,10 @@ function App() {
     const trimmedRoomId = roomId.trim();
     const trimmedPlayerName = playerName.trim();
     if (trimmedRoomId && trimmedPlayerName) {
-      if (!socket.connected) {
-        socket.connect();
-      }
-      const rejoinKey = getOrCreateRejoinKey(trimmedRoomId, trimmedPlayerName);
-      socket.emit('join_room', { roomId: trimmedRoomId, playerName: trimmedPlayerName, rejoinKey });
+      window.localStorage.setItem(SESSION_ROOM_ID_KEY, trimmedRoomId);
+      window.localStorage.setItem(SESSION_PLAYER_NAME_KEY, trimmedPlayerName);
+      setRoomId(trimmedRoomId);
+      setPlayerName(trimmedPlayerName);
       roomIdRef.current = trimmedRoomId;
       playerNameRef.current = trimmedPlayerName;
       inLobbyRef.current = false;
@@ -537,6 +566,8 @@ function App() {
       inspectingJudges: [],
       inspectionVotes: {}
     });
+    window.localStorage.removeItem(SESSION_ROOM_ID_KEY);
+    window.localStorage.removeItem(SESSION_PLAYER_NAME_KEY);
     setInLobby(true);
   };
 
