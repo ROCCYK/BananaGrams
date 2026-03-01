@@ -2,7 +2,8 @@ import { useState, useEffect, useRef } from 'react';
 import { io } from 'socket.io-client';
 import {
   DndContext,
-  PointerSensor,
+  MouseSensor,
+  TouchSensor,
   useSensor,
   useSensors,
   DragOverlay,
@@ -592,11 +593,17 @@ function App() {
   };
 
   const sensors = useSensors(
-    useSensor(PointerSensor, {
+    useSensor(MouseSensor, {
       activationConstraint: {
         distance: 5,
       },
-    })
+    }),
+    useSensor(TouchSensor, {
+      activationConstraint: {
+        delay: 140,
+        tolerance: 10,
+      },
+    }),
   );
 
   const handleDragStart = (event) => {
