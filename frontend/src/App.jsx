@@ -323,7 +323,7 @@ function App() {
             id,
             letter,
             placed: false,
-            revealed: false,
+            revealed: true,
             order: index,
           };
         });
