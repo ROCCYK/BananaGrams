@@ -39,7 +39,6 @@ const getOrCreateRejoinKey = (roomId, playerName) => {
 
 const TILE_SIZE = 60;
 const TILE_SPACING = 65;
-const GRID_SNAP_RADIUS = 26;
 const NEIGHBOR_SNAP_TOLERANCE = 28;
 const ALIGNMENT_TOLERANCE = 22;
 const WORLD_LIMIT = 5000;
@@ -128,6 +127,38 @@ const buildInspectionGrid = (boardTiles) => {
 };
 
 const snapToGrid = (value) => Math.round(value / TILE_SPACING) * TILE_SPACING;
+const toGridKey = (left, top) => `${left},${top}`;
+
+const findNearestFreeGridSpot = (occupiedKeys, left, top, maxRadius = 8) => {
+  const startLeft = snapToGrid(left);
+  const startTop = snapToGrid(top);
+  if (!occupiedKeys.has(toGridKey(startLeft, startTop))) {
+    return { left: startLeft, top: startTop };
+  }
+
+  const startCol = Math.round(startLeft / TILE_SPACING);
+  const startRow = Math.round(startTop / TILE_SPACING);
+  let best = null;
+
+  for (let radius = 1; radius <= maxRadius; radius += 1) {
+    for (let colOffset = -radius; colOffset <= radius; colOffset += 1) {
+      for (let rowOffset = -radius; rowOffset <= radius; rowOffset += 1) {
+        if (Math.max(Math.abs(colOffset), Math.abs(rowOffset)) !== radius) continue;
+        const candidateLeft = (startCol + colOffset) * TILE_SPACING;
+        const candidateTop = (startRow + rowOffset) * TILE_SPACING;
+        if (occupiedKeys.has(toGridKey(candidateLeft, candidateTop))) continue;
+
+        const distance = Math.hypot(colOffset, rowOffset);
+        if (!best || distance < best.distance) {
+          best = { left: candidateLeft, top: candidateTop, distance };
+        }
+      }
+    }
+    if (best) return { left: best.left, top: best.top };
+  }
+
+  return null;
+};
 
 const buildSnappedBoardTiles = (tilesMap, includeLetters = false) =>
   Object.values(tilesMap).filter((tile) => tile.placed).map((tile) => {
@@ -585,16 +616,17 @@ function App() {
       }
 
       const others = Object.values(prev).filter((t) => t.id !== active.id && t.placed);
+      const occupiedKeys = new Set(
+        others.map((other) => toGridKey(snapToGrid(other.left), snapToGrid(other.top)))
+      );
 
-      const isOccupied = (left, top) => others.some((other) => other.left === left && other.top === top);
+      const isOccupied = (left, top) => occupiedKeys.has(toGridKey(left, top));
 
       const candidateSnaps = [];
       const gridLeft = Math.round(baseLeft / TILE_SPACING) * TILE_SPACING;
       const gridTop = Math.round(baseTop / TILE_SPACING) * TILE_SPACING;
       const gridDistance = Math.hypot(baseLeft - gridLeft, baseTop - gridTop);
-      if (gridDistance <= GRID_SNAP_RADIUS) {
-        candidateSnaps.push({ left: gridLeft, top: gridTop, distance: gridDistance });
-      }
+      candidateSnaps.push({ left: gridLeft, top: gridTop, distance: gridDistance });
 
       others.forEach((other) => {
         const neighborTargets = [
@@ -613,9 +645,23 @@ function App() {
       });
 
       candidateSnaps.sort((a, b) => a.distance - b.distance);
-      const bestSnap = candidateSnaps.find((candidate) => !isOccupied(candidate.left, candidate.top));
-      const nextLeft = bestSnap ? bestSnap.left : baseLeft;
-      const nextTop = bestSnap ? bestSnap.top : baseTop;
+      let bestSnap = candidateSnaps.find((candidate) => !isOccupied(candidate.left, candidate.top));
+      if (!bestSnap) {
+        const nearestFree = findNearestFreeGridSpot(occupiedKeys, gridLeft, gridTop);
+        if (nearestFree) {
+          bestSnap = { ...nearestFree, distance: Number.POSITIVE_INFINITY };
+        }
+      }
+      if (!bestSnap && tile.placed) {
+        const currentLeft = snapToGrid(tile.left);
+        const currentTop = snapToGrid(tile.top);
+        if (!isOccupied(currentLeft, currentTop)) {
+          bestSnap = { left: currentLeft, top: currentTop, distance: Number.POSITIVE_INFINITY };
+        }
+      }
+
+      const nextLeft = bestSnap ? bestSnap.left : snapToGrid(baseLeft);
+      const nextTop = bestSnap ? bestSnap.top : snapToGrid(baseTop);
 
       return {
         ...prev,
