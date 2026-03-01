@@ -16,7 +16,6 @@ app.use(cors({
 
 const server = http.createServer(app);
 const io = new Server(server, {
-  transports: ['websocket'],
   perMessageDeflate: false,
   maxHttpBufferSize: 1e5,
   cors: {
