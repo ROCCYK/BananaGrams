@@ -17,7 +17,7 @@ services:
       - key: MAX_PLAYERS_PER_ROOM
         value: "8"
       - key: CORS_ORIGIN
-        value: "*"
+        value: https://bananagrams-frontend-0n1g.onrender.com
 
   - type: web
     name: bananagrams-frontend
