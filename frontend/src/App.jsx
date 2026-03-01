@@ -40,6 +40,7 @@ const NEIGHBOR_SNAP_TOLERANCE = 28;
 const ALIGNMENT_TOLERANCE = 22;
 const WORLD_LIMIT = 5000;
 const MOBILE_DEFAULT_SCALE = 0.5;
+const BOARD_SYNC_INTERVAL_MS = 700;
 
 const clamp = (value, min, max) => Math.min(Math.max(value, min), max);
 
@@ -135,6 +136,30 @@ const buildSnappedBoardTiles = (tilesMap, includeLetters = false) =>
     return { ...snapped, letter: tile.letter };
   });
 
+const buildBoardSyncPayload = (tilesMap) =>
+  Object.values(tilesMap)
+    .map((tile) => ({
+      id: tile.id,
+      letter: tile.letter,
+      left: typeof tile.left === 'number' ? tile.left : 0,
+      top: typeof tile.top === 'number' ? tile.top : 0,
+      placed: Boolean(tile.placed),
+      revealed: Boolean(tile.revealed),
+      order: typeof tile.order === 'number' ? tile.order : 0
+    }))
+    .sort((a, b) => {
+      const orderDiff = a.order - b.order;
+      if (orderDiff !== 0) return orderDiff;
+      return a.id.localeCompare(b.id);
+    });
+
+const getBoardSyncSignature = (payload) =>
+  payload
+    .map((tile) => (
+      `${tile.id}|${tile.letter}|${tile.placed ? 1 : 0}|${tile.left}|${tile.top}|${tile.revealed ? 1 : 0}|${tile.order}`
+    ))
+    .join(';');
+
 function App() {
   const [roomId, setRoomId] = useState('');
   const [playerName, setPlayerName] = useState('');
@@ -155,6 +180,7 @@ function App() {
   const [pendingDumpTileId, setPendingDumpTileId] = useState(null);
   const pendingDumpTileIdRef = useRef(null);
   const boardSyncTimerRef = useRef(null);
+  const lastBoardSyncSignatureRef = useRef('');
   const [gameOver, setGameOver] = useState(null);
   const {
     isOver: isHandDropOver,
@@ -224,6 +250,7 @@ function App() {
       setCamera(resumed ? getCameraCenteredOnTiles(initialTiles) : getDefaultCamera());
       setActiveId(null);
       setPendingDumpTileId(null);
+      lastBoardSyncSignatureRef.current = '';
       setGameOver(null);
     });
 
@@ -331,25 +358,18 @@ function App() {
 
   useEffect(() => {
     if (inLobby || !roomId || !socket.connected) return;
+    const playerTiles = buildBoardSyncPayload(tiles);
+    const nextSignature = getBoardSyncSignature(playerTiles);
+    if (nextSignature === lastBoardSyncSignatureRef.current) return;
 
     if (boardSyncTimerRef.current) {
       clearTimeout(boardSyncTimerRef.current);
     }
 
     boardSyncTimerRef.current = setTimeout(() => {
-      const playerTiles = Object.values(tiles)
-        .map((tile) => ({
-        id: tile.id,
-        letter: tile.letter,
-        left: typeof tile.left === 'number' ? tile.left : 0,
-        top: typeof tile.top === 'number' ? tile.top : 0,
-        placed: Boolean(tile.placed),
-        revealed: Boolean(tile.revealed),
-        order: typeof tile.order === 'number' ? tile.order : 0
-        }));
-
       socket.emit('board_state_update', { roomId, tiles: playerTiles });
-    }, 120);
+      lastBoardSyncSignatureRef.current = nextSignature;
+    }, BOARD_SYNC_INTERVAL_MS);
 
     return () => {
       if (boardSyncTimerRef.current) {
@@ -418,6 +438,7 @@ function App() {
     setTiles({});
     setActiveId(null);
     setPendingDumpTileId(null);
+    lastBoardSyncSignatureRef.current = '';
     pendingDumpTileIdRef.current = null;
     setGameOver(null);
     setRoomState({

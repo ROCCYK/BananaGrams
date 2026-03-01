@@ -40,6 +40,9 @@ const INITIAL_POOL = [
 const TILE_SPACING = 65;
 const SNAP_TOLERANCE = 28;
 const REJOIN_GRACE_MS = 2 * 60 * 1000;
+const BOARD_SYNC_MIN_INTERVAL_MS = 300;
+const ROOM_IDLE_TTL_MS = 20 * 60 * 1000;
+const ROOM_CLEANUP_INTERVAL_MS = 60 * 1000;
 const disconnectTimers = new Map();
 
 function shuffleArray(array) {
@@ -49,6 +52,20 @@ function shuffleArray(array) {
     [newArr[i], newArr[j]] = [newArr[j], newArr[i]];
   }
   return newArr;
+}
+
+function insertRandomTile(pool, tile) {
+  if (!Array.isArray(pool)) return;
+  pool.push(tile);
+  if (pool.length <= 1) return;
+  const randomIndex = Math.floor(Math.random() * pool.length);
+  const lastIndex = pool.length - 1;
+  [pool[randomIndex], pool[lastIndex]] = [pool[lastIndex], pool[randomIndex]];
+}
+
+function allPlayersDisconnected(room) {
+  const players = Object.values(room?.players || {});
+  return players.length > 0 && players.every((player) => player.connected === false);
 }
 
 function allTilesHaveAtLeastOneNeighbor(boardTiles) {
@@ -93,25 +110,12 @@ function allTilesHaveAtLeastOneNeighbor(boardTiles) {
     coords.push({ col, row, key });
   }
 
-  const neighborsByKey = new Map();
-  coords.forEach(({ key }) => neighborsByKey.set(key, []));
-
-  coords.forEach(({ col, row, key }) => {
-    const candidates = [
-      `${col + 1},${row}`,
-      `${col - 1},${row}`,
-      `${col},${row + 1}`,
-      `${col},${row - 1}`
-    ];
-
-    candidates.forEach((candidate) => {
-      if (occupied.has(candidate)) {
-        neighborsByKey.get(key).push(candidate);
-      }
-    });
-  });
-
-  return coords.every(({ key }) => neighborsByKey.get(key).length > 0);
+  return coords.every(({ col, row }) => (
+    occupied.has(`${col + 1},${row}`) ||
+    occupied.has(`${col - 1},${row}`) ||
+    occupied.has(`${col},${row + 1}`) ||
+    occupied.has(`${col},${row - 1}`)
+  ));
 }
 
 const rooms = {};
@@ -164,7 +168,26 @@ function sanitizePlayerTiles(tiles) {
       left: tile.placed ? tile.left : 0,
       top: tile.placed ? tile.top : 0,
       order: typeof tile.order === 'number' ? tile.order : 0
-    }));
+    }))
+    .sort((a, b) => {
+      const orderDiff = (a.order || 0) - (b.order || 0);
+      if (orderDiff !== 0) return orderDiff;
+      return a.id.localeCompare(b.id);
+    });
+}
+
+function getTilesSignature(tiles) {
+  if (!tiles.length) return '';
+  return tiles
+    .map((tile) => (
+      `${tile.id}|${tile.letter}|${tile.placed ? 1 : 0}|${tile.left}|${tile.top}|${tile.revealed ? 1 : 0}|${tile.order}`
+    ))
+    .join(';');
+}
+
+function markRoomActivity(room) {
+  if (!room) return;
+  room.lastActivityAt = Date.now();
 }
 
 function clearInspectionState(room) {
@@ -188,9 +211,20 @@ function clearDisconnectTimer(roomId, rejoinKey) {
   }
 }
 
+function clearRoomDisconnectTimers(roomId) {
+  if (!roomId) return;
+  for (const [key, timeout] of disconnectTimers.entries()) {
+    if (key.startsWith(`${roomId}:`)) {
+      clearTimeout(timeout);
+      disconnectTimers.delete(key);
+    }
+  }
+}
+
 function concludeInspectionAsWinner(roomId) {
   const room = rooms[roomId];
   if (!room) return;
+  markRoomActivity(room);
 
   const winnerId = room.inspectingPlayer;
   const winnerName = room.players[winnerId]?.name || 'Unknown';
@@ -211,6 +245,7 @@ function concludeInspectionAsWinner(roomId) {
 function concludeInspectionAsRotten(roomId) {
   const room = rooms[roomId];
   if (!room) return;
+  markRoomActivity(room);
 
   const rottenId = room.inspectingPlayer;
   if (!rottenId || !room.players[rottenId]) return;
@@ -219,8 +254,7 @@ function concludeInspectionAsRotten(roomId) {
     .map((tile) => tile.letter)
     .filter(Boolean);
 
-  room.pool.push(...returnedTiles);
-  room.pool = shuffleArray(room.pool);
+  returnedTiles.forEach((tile) => insertRandomTile(room.pool, tile));
   room.players[rottenId].isOut = true;
   room.players[rottenId].hand = [];
   room.players[rottenId].handSize = 0;
@@ -239,6 +273,7 @@ function concludeInspectionAsRotten(roomId) {
 function maybeResolveInspection(roomId) {
   const room = rooms[roomId];
   if (!room || room.status !== 'inspecting') return;
+  markRoomActivity(room);
 
   const judgesCount = (room.inspectingJudges || []).length;
   if (judgesCount === 0) {
@@ -285,8 +320,10 @@ io.on('connection', (socket) => {
     }
 
     delete room.players[playerId];
+    markRoomActivity(room);
 
     if (Object.keys(room.players).length === 0) {
+      clearRoomDisconnectTimers(roomId);
       delete rooms[roomId];
     } else {
       io.to(roomId).emit('room_state_updated', getRoomState(room));
@@ -346,11 +383,13 @@ io.on('connection', (socket) => {
         inspectingPlayer: null,
         inspectingBoardTiles: [],
         inspectingJudges: [],
-        inspectionVotes: {}
+        inspectionVotes: {},
+        lastActivityAt: Date.now()
       };
     }
 
     const room = rooms[roomId];
+    markRoomActivity(room);
     const normalizedRejoinKey = typeof rejoinKey === 'string' && rejoinKey.trim()
       ? rejoinKey.trim()
       : null;
@@ -422,6 +461,7 @@ io.on('connection', (socket) => {
   socket.on('start_game', ({ roomId }) => {
     const room = rooms[roomId];
     if (!room || room.status === 'playing') return;
+    markRoomActivity(room);
 
     room.status = 'playing';
     room.pool = shuffleArray(INITIAL_POOL);
@@ -452,6 +492,7 @@ io.on('connection', (socket) => {
   socket.on('peel', ({ roomId, boardTiles }) => {
     const room = rooms[roomId];
     if (!room || room.status !== 'playing') return;
+    markRoomActivity(room);
     const peeler = room.players[socket.id];
     if (!peeler || peeler.isOut) return;
 
@@ -487,6 +528,7 @@ io.on('connection', (socket) => {
   socket.on('dump', ({ roomId, letter, clientTileId }) => {
     const room = rooms[roomId];
     if (!room || room.status !== 'playing') return;
+    markRoomActivity(room);
     const player = room.players[socket.id];
     if (!player || player.isOut) return;
 
@@ -499,10 +541,12 @@ io.on('connection', (socket) => {
       }
 
       player.hand.splice(dumpedIndex, 1);
-      room.pool.push(normalizedLetter);
-      room.pool = shuffleArray(room.pool);
+      insertRandomTile(room.pool, normalizedLetter);
 
-      const newTiles = room.pool.splice(0, 3);
+      const newTiles = [];
+      for (let i = 0; i < 3 && room.pool.length > 0; i++) {
+        newTiles.push(room.pool.pop());
+      }
       player.hand.push(...newTiles);
       player.handSize = player.hand.length;
       io.to(socket.id).emit('dump_received', {
@@ -521,6 +565,7 @@ io.on('connection', (socket) => {
   socket.on('bananas', ({ roomId, boardTiles }) => {
     const room = rooms[roomId];
     if (!room || room.status !== 'playing') return;
+    markRoomActivity(room);
     if (room.players[socket.id]?.isOut) return;
     const candidate = room.players[socket.id];
 
@@ -571,6 +616,7 @@ io.on('connection', (socket) => {
   socket.on('inspection_vote', ({ roomId, vote }) => {
     const room = rooms[roomId];
     if (!room || room.status !== 'inspecting') return;
+    markRoomActivity(room);
     if (!['valid', 'rotten'].includes(vote)) return;
 
     if (socket.id === room.inspectingPlayer) {
@@ -598,11 +644,26 @@ io.on('connection', (socket) => {
     if (!room) return;
     const player = room.players[socket.id];
     if (!player) return;
+    markRoomActivity(room);
+
+    const now = Date.now();
+    if (
+      typeof player.lastBoardUpdateAt === 'number' &&
+      now - player.lastBoardUpdateAt < BOARD_SYNC_MIN_INTERVAL_MS
+    ) {
+      return;
+    }
 
     const sanitized = sanitizePlayerTiles(tiles);
     if (player.handSize > 0 && sanitized.length !== player.handSize) return;
+    const nextSignature = getTilesSignature(sanitized);
+    if (nextSignature === (player.boardStateSignature || '')) {
+      return;
+    }
 
     player.tiles = sanitized;
+    player.boardStateSignature = nextSignature;
+    player.lastBoardUpdateAt = now;
   });
 
   socket.on('leave_room', ({ roomId }) => {
@@ -626,3 +687,14 @@ const PORT = process.env.PORT || 3001;
 server.listen(PORT, () => {
   console.log(`Socket.io Server running on port ${PORT}`);
 });
+
+setInterval(() => {
+  const now = Date.now();
+  for (const [roomId, room] of Object.entries(rooms)) {
+    const isIdle = now - (room.lastActivityAt || 0) > ROOM_IDLE_TTL_MS;
+    if (isIdle && allPlayersDisconnected(room)) {
+      clearRoomDisconnectTimers(roomId);
+      delete rooms[roomId];
+    }
+  }
+}, ROOM_CLEANUP_INTERVAL_MS);
