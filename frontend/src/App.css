@@ -65,6 +65,15 @@
   font-weight: 600;
 }
 
+.room-pill-btn {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  color: inherit;
+  font: inherit;
+  padding: 0.2rem 0.65rem;
+  border-radius: 999px;
+}
+
 .pool-count {
   color: var(--banana-yellow);
 }
@@ -182,6 +191,20 @@
 
 .btn-bananas:active {
   box-shadow: 0 0 0 #c5aa00;
+}
+
+.btn-exit {
+  background-color: #8f2932;
+  color: #fff;
+  box-shadow: 0 4px 0 #5f1a20;
+}
+
+.btn-exit:hover {
+  box-shadow: 0 6px 0 #5f1a20, 0 8px 16px rgba(143, 41, 50, 0.3);
+}
+
+.btn-exit:active {
+  box-shadow: 0 0 0 #5f1a20;
 }
 
 /* The Board Area */
@@ -445,7 +468,8 @@
     font-weight: 700;
   }
 
-  .header-stats span {
+  .header-stats span,
+  .header-stats .room-pill-btn {
     padding: 0.4rem 0.45rem;
     border-radius: 10px;
     text-align: center;

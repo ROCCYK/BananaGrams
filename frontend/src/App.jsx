@@ -227,6 +227,7 @@ function App() {
   const [panMode, setPanMode] = useState(false);
   const [activeId, setActiveId] = useState(null);
   const [pendingDumpTileId, setPendingDumpTileId] = useState(null);
+  const [showExitGameButton, setShowExitGameButton] = useState(false);
   const pendingDumpTileIdRef = useRef(null);
   const boardSyncTimerRef = useRef(null);
   const lastBoardSyncSignatureRef = useRef('');
@@ -556,6 +557,7 @@ function App() {
     setTiles({});
     setActiveId(null);
     setPendingDumpTileId(null);
+    setShowExitGameButton(false);
     lastBoardSyncSignatureRef.current = '';
     inLobbyRef.current = true;
     pendingDumpTileIdRef.current = null;
@@ -765,12 +767,25 @@ function App() {
     <div className="app-container">
       <header className="game-header">
         <div className="header-stats">
-          <span>Room: {roomId}</span>
+          <button
+            type="button"
+            className="room-pill-btn"
+            onClick={() => setShowExitGameButton((prev) => !prev)}
+            aria-expanded={showExitGameButton}
+            aria-controls="exit-game-button"
+          >
+            Room: {roomId}
+          </button>
           <span className="pool-count">Pool: {roomState.poolSize}</span>
           <span>My Hand: {myPlayer.handSize || 0}</span>
         </div>
 
         <div className="game-controls">
+          {showExitGameButton ? (
+            <button id="exit-game-button" className="btn-exit" onClick={handleExitGame}>
+              Exit Game
+            </button>
+          ) : null}
           {!isPlaying && !isInspecting && roomState.poolSize === 0 ? (
             <button onClick={handleStartGame}>Start Game</button>
           ) : null}
