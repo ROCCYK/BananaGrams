@@ -16,6 +16,9 @@ app.use(cors({
 
 const server = http.createServer(app);
 const io = new Server(server, {
+  transports: ['websocket'],
+  perMessageDeflate: false,
+  maxHttpBufferSize: 1e5,
   cors: {
     origin: allowedOrigins.includes('*') ? true : allowedOrigins,
     methods: ['GET', 'POST']
@@ -43,7 +46,31 @@ const REJOIN_GRACE_MS = 2 * 60 * 1000;
 const BOARD_SYNC_MIN_INTERVAL_MS = 300;
 const ROOM_IDLE_TTL_MS = 20 * 60 * 1000;
 const ROOM_CLEANUP_INTERVAL_MS = 60 * 1000;
+const ROOM_MAX_AGE_MS = Number(process.env.ROOM_MAX_AGE_MS || 6 * 60 * 60 * 1000);
+const MAX_ROOMS = Number(process.env.MAX_ROOMS || 200);
+const MAX_PLAYERS_PER_ROOM = Number(process.env.MAX_PLAYERS_PER_ROOM || 8);
+const MEMORY_LOG_INTERVAL_MS = Number(process.env.MEMORY_LOG_INTERVAL_MS || 5 * 60 * 1000);
+const LOG_LEVEL = String(process.env.LOG_LEVEL || 'info').toLowerCase();
 const disconnectTimers = new Map();
+const LOG_LEVELS = {
+  silent: 0,
+  error: 1,
+  info: 2,
+  debug: 3
+};
+const ACTIVE_LOG_LEVEL = LOG_LEVELS[LOG_LEVEL] ?? LOG_LEVELS.info;
+
+function logInfo(...args) {
+  if (ACTIVE_LOG_LEVEL >= LOG_LEVELS.info) {
+    console.log(...args);
+  }
+}
+
+function logError(...args) {
+  if (ACTIVE_LOG_LEVEL >= LOG_LEVELS.error) {
+    console.error(...args);
+  }
+}
 
 function shuffleArray(array) {
   const newArr = [...array];
@@ -298,7 +325,7 @@ function maybeResolveInspection(roomId) {
 }
 
 io.on('connection', (socket) => {
-  console.log('User connected:', socket.id);
+  logInfo('User connected:', socket.id);
 
   const removePlayerFromRoom = (roomId, playerId) => {
     const room = rooms[roomId];
@@ -373,9 +400,12 @@ io.on('connection', (socket) => {
 
   socket.on('join_room', ({ roomId, playerName, rejoinKey }) => {
     if (!roomId) return;
-    socket.join(roomId);
 
     if (!rooms[roomId]) {
+      if (Object.keys(rooms).length >= MAX_ROOMS) {
+        socket.emit('error', { message: 'Server is busy. Please try again in a moment.' });
+        return;
+      }
       rooms[roomId] = {
         status: 'waiting',
         pool: [],
@@ -384,9 +414,12 @@ io.on('connection', (socket) => {
         inspectingBoardTiles: [],
         inspectingJudges: [],
         inspectionVotes: {},
-        lastActivityAt: Date.now()
+        lastActivityAt: Date.now(),
+        createdAt: Date.now()
       };
     }
+
+    socket.join(roomId);
 
     const room = rooms[roomId];
     markRoomActivity(room);
@@ -438,7 +471,12 @@ io.on('connection', (socket) => {
         tiles: restoredTiles,
         resumed: true
       });
-      console.log(`${room.players[socket.id].name} rejoined room ${roomId}`);
+      logInfo(`${room.players[socket.id].name} rejoined room ${roomId}`);
+      return;
+    }
+
+    if (Object.keys(room.players).length >= MAX_PLAYERS_PER_ROOM) {
+      socket.emit('error', { message: `Room is full (max ${MAX_PLAYERS_PER_ROOM} players).` });
       return;
     }
 
@@ -455,7 +493,7 @@ io.on('connection', (socket) => {
     };
 
     io.to(roomId).emit('room_state_updated', getRoomState(room));
-    console.log(`${playerName || socket.id} joined room ${roomId}`);
+    logInfo(`${playerName || socket.id} joined room ${roomId}`);
   });
 
   socket.on('start_game', ({ roomId }) => {
@@ -486,7 +524,7 @@ io.on('connection', (socket) => {
     });
 
     io.to(roomId).emit('room_state_updated', getRoomState(room));
-    console.log(`Game started in room ${roomId}`);
+    logInfo(`Game started in room ${roomId}`);
   });
 
   socket.on('peel', ({ roomId, boardTiles }) => {
@@ -522,7 +560,7 @@ io.on('connection', (socket) => {
     });
 
     io.to(roomId).emit('room_state_updated', getRoomState(room));
-    console.log(`PEEL in room ${roomId}. Pool size: ${room.pool.length}`);
+    logInfo(`PEEL in room ${roomId}. Pool size: ${room.pool.length}`);
   });
 
   socket.on('dump', ({ roomId, letter, clientTileId }) => {
@@ -556,7 +594,7 @@ io.on('connection', (socket) => {
       });
 
       io.to(roomId).emit('room_state_updated', getRoomState(room));
-      console.log(`${socket.id} dumped ${letter} in room ${roomId}`);
+      logInfo(`${socket.id} dumped ${letter} in room ${roomId}`);
     } else {
       socket.emit('error', { message: 'Not enough tiles left to dump!' });
     }
@@ -610,7 +648,7 @@ io.on('connection', (socket) => {
 
     io.to(roomId).emit('room_state_updated', getRoomState(room));
     maybeResolveInspection(roomId);
-    console.log(`${socket.id} called BANANAS in room ${roomId}. Entering inspection.`);
+    logInfo(`${socket.id} called BANANAS in room ${roomId}. Entering inspection.`);
   });
 
   socket.on('inspection_vote', ({ roomId, vote }) => {
@@ -673,7 +711,7 @@ io.on('connection', (socket) => {
   });
 
   socket.on('disconnect', () => {
-    console.log('User disconnected:', socket.id);
+    logInfo('User disconnected:', socket.id);
 
     for (const roomId in rooms) {
       if (rooms[roomId].players[socket.id]) {
@@ -685,16 +723,44 @@ io.on('connection', (socket) => {
 
 const PORT = process.env.PORT || 3001;
 server.listen(PORT, () => {
-  console.log(`Socket.io Server running on port ${PORT}`);
+  logInfo(`Socket.io Server running on port ${PORT}`);
 });
 
-setInterval(() => {
+const roomCleanupInterval = setInterval(() => {
   const now = Date.now();
   for (const [roomId, room] of Object.entries(rooms)) {
+    const isTooOld = now - (room.createdAt || 0) > ROOM_MAX_AGE_MS;
     const isIdle = now - (room.lastActivityAt || 0) > ROOM_IDLE_TTL_MS;
-    if (isIdle && allPlayersDisconnected(room)) {
+    if ((isIdle || isTooOld) && allPlayersDisconnected(room)) {
       clearRoomDisconnectTimers(roomId);
       delete rooms[roomId];
     }
   }
 }, ROOM_CLEANUP_INTERVAL_MS);
+roomCleanupInterval.unref();
+
+if (MEMORY_LOG_INTERVAL_MS > 0) {
+  const memoryInterval = setInterval(() => {
+    const memory = process.memoryUsage();
+    logInfo(
+      `mem rss=${Math.round(memory.rss / 1024 / 1024)}MB heapUsed=${Math.round(memory.heapUsed / 1024 / 1024)}MB rooms=${Object.keys(rooms).length}`
+    );
+  }, MEMORY_LOG_INTERVAL_MS);
+  memoryInterval.unref();
+}
+
+process.on('uncaughtException', (error) => {
+  logError('uncaughtException', error);
+});
+
+process.on('unhandledRejection', (reason) => {
+  logError('unhandledRejection', reason);
+});
+
+process.on('SIGTERM', () => {
+  logInfo('SIGTERM received, shutting down gracefully');
+  server.close(() => {
+    process.exit(0);
+  });
+  setTimeout(() => process.exit(1), 10_000).unref();
+});
