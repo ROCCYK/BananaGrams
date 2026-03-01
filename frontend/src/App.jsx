@@ -15,7 +15,11 @@ import './App.css';
 
 const SOCKET_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 const socket = io(SOCKET_URL, {
-  transports: ['websocket', 'polling']
+  transports: ['websocket', 'polling'],
+  reconnection: true,
+  reconnectionAttempts: Infinity,
+  reconnectionDelay: 800,
+  reconnectionDelayMax: 4000
 });
 
 const getOrCreateRejoinKey = (roomId, playerName) => {
@@ -181,6 +185,9 @@ function App() {
   const pendingDumpTileIdRef = useRef(null);
   const boardSyncTimerRef = useRef(null);
   const lastBoardSyncSignatureRef = useRef('');
+  const inLobbyRef = useRef(true);
+  const roomIdRef = useRef('');
+  const playerNameRef = useRef('');
   const [gameOver, setGameOver] = useState(null);
   const {
     isOver: isHandDropOver,
@@ -188,6 +195,51 @@ function App() {
   } = useDroppable({
     id: 'hand-droppable',
   });
+
+  useEffect(() => {
+    inLobbyRef.current = inLobby;
+    roomIdRef.current = roomId;
+    playerNameRef.current = playerName;
+  }, [inLobby, roomId, playerName]);
+
+  useEffect(() => {
+    const rejoinIfNeeded = () => {
+      if (inLobbyRef.current) return;
+      const activeRoomId = roomIdRef.current.trim();
+      const activePlayerName = playerNameRef.current.trim();
+      if (!activeRoomId || !activePlayerName) return;
+
+      const rejoinKey = getOrCreateRejoinKey(activeRoomId, activePlayerName);
+      socket.emit('join_room', {
+        roomId: activeRoomId,
+        playerName: activePlayerName,
+        rejoinKey
+      });
+    };
+
+    const handleConnect = () => {
+      rejoinIfNeeded();
+    };
+
+    const handleVisibilityOrPageShow = () => {
+      if (document.visibilityState === 'visible' && !socket.connected) {
+        socket.connect();
+      }
+      if (document.visibilityState === 'visible' && socket.connected) {
+        rejoinIfNeeded();
+      }
+    };
+
+    socket.on('connect', handleConnect);
+    document.addEventListener('visibilitychange', handleVisibilityOrPageShow);
+    window.addEventListener('pageshow', handleVisibilityOrPageShow);
+
+    return () => {
+      socket.off('connect', handleConnect);
+      document.removeEventListener('visibilitychange', handleVisibilityOrPageShow);
+      window.removeEventListener('pageshow', handleVisibilityOrPageShow);
+    };
+  }, []);
 
   useEffect(() => {
     if (panMode) {
@@ -389,6 +441,9 @@ function App() {
       }
       const rejoinKey = getOrCreateRejoinKey(trimmedRoomId, trimmedPlayerName);
       socket.emit('join_room', { roomId: trimmedRoomId, playerName: trimmedPlayerName, rejoinKey });
+      roomIdRef.current = trimmedRoomId;
+      playerNameRef.current = trimmedPlayerName;
+      inLobbyRef.current = false;
       setInLobby(false);
     }
   };
@@ -439,6 +494,7 @@ function App() {
     setActiveId(null);
     setPendingDumpTileId(null);
     lastBoardSyncSignatureRef.current = '';
+    inLobbyRef.current = true;
     pendingDumpTileIdRef.current = null;
     setGameOver(null);
     setRoomState({
