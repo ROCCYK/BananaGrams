@@ -28,16 +28,24 @@ app.get('/healthz', (_req, res) => {
   res.status(200).json({ ok: true });
 });
 
-// A=13 B=3 C=3 D=6 E=18 F=3 G=4 H=3 I=12 J=2 K=2 L=5 M=3 N=8 O=11 P=3 Q=2 R=9 S=6 T=9 U=6 V=3 W=3 X=2 Y=3 Z=2
-const INITIAL_POOL = [
-  ...Array(13).fill('A'), ...Array(3).fill('B'), ...Array(3).fill('C'), ...Array(6).fill('D'),
-  ...Array(18).fill('E'), ...Array(3).fill('F'), ...Array(4).fill('G'), ...Array(3).fill('H'),
-  ...Array(12).fill('I'), ...Array(2).fill('J'), ...Array(2).fill('K'), ...Array(5).fill('L'),
-  ...Array(3).fill('M'), ...Array(8).fill('N'), ...Array(11).fill('O'), ...Array(3).fill('P'),
-  ...Array(2).fill('Q'), ...Array(9).fill('R'), ...Array(6).fill('S'), ...Array(9).fill('T'),
-  ...Array(6).fill('U'), ...Array(3).fill('V'), ...Array(3).fill('W'), ...Array(2).fill('X'),
-  ...Array(3).fill('Y'), ...Array(2).fill('Z')
-];
+// Standard 144-tile set, sized for up to 8 players.
+const LETTER_COUNTS = {
+  A: 13, B: 3, C: 3, D: 6, E: 18, F: 3, G: 4, H: 3, I: 12, J: 2, K: 2, L: 5, M: 3,
+  N: 8, O: 11, P: 3, Q: 2, R: 9, S: 6, T: 9, U: 6, V: 3, W: 3, X: 2, Y: 3, Z: 2
+};
+const BASE_SET_PLAYERS = 8;
+
+// Scale every letter proportionally so larger rooms keep the same tiles-per-player
+// density as an 8-player game. Rooms of 8 or fewer use the standard set.
+function buildPool(playerCount) {
+  const scale = Math.max(1, playerCount / BASE_SET_PLAYERS);
+  const pool = [];
+  for (const [letter, count] of Object.entries(LETTER_COUNTS)) {
+    const scaledCount = Math.ceil(count * scale);
+    for (let i = 0; i < scaledCount; i++) pool.push(letter);
+  }
+  return pool;
+}
 
 const TILE_SPACING = 65;
 const SNAP_TOLERANCE = 28;
@@ -47,7 +55,8 @@ const ROOM_IDLE_TTL_MS = 20 * 60 * 1000;
 const ROOM_CLEANUP_INTERVAL_MS = 60 * 1000;
 const ROOM_MAX_AGE_MS = Number(process.env.ROOM_MAX_AGE_MS || 6 * 60 * 60 * 1000);
 const MAX_ROOMS = Number(process.env.MAX_ROOMS || 200);
-const MAX_PLAYERS_PER_ROOM = Number(process.env.MAX_PLAYERS_PER_ROOM || 8);
+// 0 (the default) means no limit.
+const MAX_PLAYERS_PER_ROOM = Number(process.env.MAX_PLAYERS_PER_ROOM || 0);
 const MEMORY_LOG_INTERVAL_MS = Number(process.env.MEMORY_LOG_INTERVAL_MS || 5 * 60 * 1000);
 const LOG_LEVEL = String(process.env.LOG_LEVEL || 'info').toLowerCase();
 const disconnectTimers = new Map();
@@ -474,7 +483,7 @@ io.on('connection', (socket) => {
       return;
     }
 
-    if (Object.keys(room.players).length >= MAX_PLAYERS_PER_ROOM) {
+    if (MAX_PLAYERS_PER_ROOM > 0 && Object.keys(room.players).length >= MAX_PLAYERS_PER_ROOM) {
       socket.emit('error', { message: `Room is full (max ${MAX_PLAYERS_PER_ROOM} players).` });
       return;
     }
@@ -501,10 +510,10 @@ io.on('connection', (socket) => {
     markRoomActivity(room);
 
     room.status = 'playing';
-    room.pool = shuffleArray(INITIAL_POOL);
     clearInspectionState(room);
 
     const players = Object.values(room.players);
+    room.pool = shuffleArray(buildPool(players.length));
 
     let initialTiles = 21;
     if (players.length >= 7) initialTiles = 11;
