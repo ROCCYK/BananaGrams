@@ -2,6 +2,8 @@ const express = require('express');
 const { Server } = require('socket.io');
 const http = require('http');
 const cors = require('cors');
+const fs = require('fs');
+const wordListPath = require('word-list');
 
 const app = express();
 const allowedOrigins = (process.env.CORS_ORIGIN || '*')
@@ -103,7 +105,7 @@ function allPlayersDisconnected(room) {
   return players.length > 0 && players.every((player) => player.connected === false);
 }
 
-function allTilesHaveAtLeastOneNeighbor(boardTiles) {
+function isBoardConnected(boardTiles) {
   if (!Array.isArray(boardTiles) || boardTiles.length <= 0) {
     return false;
   }
@@ -145,12 +147,92 @@ function allTilesHaveAtLeastOneNeighbor(boardTiles) {
     coords.push({ col, row, key });
   }
 
-  return coords.every(({ col, row }) => (
-    occupied.has(`${col + 1},${row}`) ||
-    occupied.has(`${col - 1},${row}`) ||
-    occupied.has(`${col},${row + 1}`) ||
-    occupied.has(`${col},${row - 1}`)
-  ));
+  // A lone tile isn't a grid.
+  if (coords.length < 2) {
+    return false;
+  }
+
+  // Flood fill from the first tile; every tile must be reachable.
+  const visited = new Set([coords[0].key]);
+  const stack = [coords[0]];
+  while (stack.length > 0) {
+    const { col, row } = stack.pop();
+    for (const [dCol, dRow] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      const key = `${col + dCol},${row + dRow}`;
+      if (occupied.has(key) && !visited.has(key)) {
+        visited.add(key);
+        stack.push({ col: col + dCol, row: row + dRow });
+      }
+    }
+  }
+
+  return visited.size === coords.length;
+}
+
+const DICTIONARY = new Set(
+  fs.readFileSync(wordListPath, 'utf8')
+    .split('\n')
+    .map((word) => word.trim().toUpperCase())
+    .filter(Boolean)
+);
+
+// Reads every horizontal and vertical run of 2+ letters off a snapped board.
+// Returns null if the tiles don't sit on a clean grid.
+function extractBoardWords(boardTiles) {
+  if (!Array.isArray(boardTiles) || boardTiles.length <= 0) return null;
+
+  const anchor = boardTiles[0];
+  const grid = new Map();
+  for (const tile of boardTiles) {
+    if (
+      !tile ||
+      typeof tile.left !== 'number' ||
+      typeof tile.top !== 'number' ||
+      typeof tile.letter !== 'string' ||
+      tile.letter.length !== 1
+    ) {
+      return null;
+    }
+    const col = Math.round((tile.left - anchor.left) / TILE_SPACING);
+    const row = Math.round((tile.top - anchor.top) / TILE_SPACING);
+    const key = `${col},${row}`;
+    if (grid.has(key)) return null;
+    grid.set(key, { col, row, letter: tile.letter.toUpperCase() });
+  }
+
+  const words = [];
+  const readRun = (cell, dCol, dRow) => {
+    // Only start a run at its first letter.
+    if (grid.has(`${cell.col - dCol},${cell.row - dRow}`)) return;
+    let word = '';
+    let col = cell.col;
+    let row = cell.row;
+    while (grid.has(`${col},${row}`)) {
+      word += grid.get(`${col},${row}`).letter;
+      col += dCol;
+      row += dRow;
+    }
+    if (word.length >= 2) words.push(word);
+  };
+
+  for (const cell of grid.values()) {
+    readRun(cell, 1, 0);
+    readRun(cell, 0, 1);
+  }
+  return words;
+}
+
+function lettersMatchHand(boardTiles, hand) {
+  const remaining = {};
+  for (const letter of hand || []) {
+    remaining[letter] = (remaining[letter] || 0) + 1;
+  }
+  for (const tile of boardTiles) {
+    const letter = String(tile?.letter || '').toUpperCase();
+    if (!remaining[letter]) return false;
+    remaining[letter] -= 1;
+  }
+  return true;
 }
 
 const rooms = {};
@@ -547,8 +629,24 @@ io.on('connection', (socket) => {
       return;
     }
 
-    if (!allTilesHaveAtLeastOneNeighbor(boardTiles)) {
-      socket.emit('error', { message: 'You can only peel when every tile has at least one orthogonal connection.' });
+    if (!isBoardConnected(boardTiles)) {
+      socket.emit('error', { message: 'All your tiles must form one connected grid before you peel.' });
+      return;
+    }
+
+    if (!lettersMatchHand(boardTiles, peeler.hand)) {
+      socket.emit('error', { message: 'Your board letters do not match the tiles you were dealt.' });
+      return;
+    }
+
+    const words = extractBoardWords(boardTiles);
+    if (!words) {
+      socket.emit('error', { message: 'Invalid board data.' });
+      return;
+    }
+    const invalidWords = [...new Set(words.filter((word) => !DICTIONARY.has(word)))];
+    if (invalidWords.length > 0) {
+      socket.emit('error', { message: `Not valid words: ${invalidWords.join(', ')}. Fix them before you peel.` });
       return;
     }
 

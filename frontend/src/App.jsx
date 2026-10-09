@@ -575,7 +575,7 @@ function App() {
       return;
     }
 
-    const boardTiles = buildSnappedBoardTiles(tiles);
+    const boardTiles = buildSnappedBoardTiles(tiles, true);
     socket.emit('peel', { roomId, boardTiles });
   };
 
