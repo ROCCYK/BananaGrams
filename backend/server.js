@@ -635,7 +635,10 @@ io.on('connection', (socket) => {
     }
 
     if (!lettersMatchHand(boardTiles, peeler.hand)) {
-      socket.emit('error', { message: 'Your board letters do not match the tiles you were dealt.' });
+      const boardLetters = boardTiles.map((tile) => String(tile?.letter || '').toUpperCase()).sort().join('');
+      logInfo(`Hand mismatch for ${peeler.name} in room ${roomId}: server=${[...peeler.hand].sort().join('')} board=${boardLetters}`);
+      // Let the client snap its tiles back to the real hand instead of staying stuck.
+      socket.emit('hand_resync', { hand: [...peeler.hand] });
       return;
     }
 
@@ -800,6 +803,8 @@ io.on('connection', (socket) => {
 
     const sanitized = sanitizePlayerTiles(tiles);
     if (player.handSize > 0 && sanitized.length !== player.handSize) return;
+    // Ignore stale boards (e.g. from a previous round) so a rejoin can't restore them.
+    if (player.hand?.length > 0 && !lettersMatchHand(sanitized, player.hand)) return;
     const nextSignature = getTilesSignature(sanitized);
     if (nextSignature === (player.boardStateSignature || '')) {
       return;

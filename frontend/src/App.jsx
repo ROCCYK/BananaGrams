@@ -217,6 +217,48 @@ const getDisconnectedBoardTileIds = (tilesMap) => {
   return components.slice(1).flat();
 };
 
+// Make a tile list match the server's hand exactly: keep tiles whose letters are in
+// the hand (placed tiles first, so the board survives), drop extras, and add any
+// missing letters to the hand area.
+const reconcileTilesWithHand = (tileList, hand) => {
+  const remaining = {};
+  hand.forEach((letter) => {
+    remaining[letter] = (remaining[letter] || 0) + 1;
+  });
+
+  const next = {};
+  let maxOrder = 0;
+  [...tileList]
+    .sort((a, b) => Number(Boolean(b.placed)) - Number(Boolean(a.placed)))
+    .forEach((tile, index) => {
+      if (!remaining[tile.letter]) return;
+      remaining[tile.letter] -= 1;
+      const id = typeof tile.id === 'string' ? tile.id : `tile-restored-${Date.now()}-${index}`;
+      const order = typeof tile.order === 'number' ? tile.order : index;
+      maxOrder = Math.max(maxOrder, order);
+      next[id] = {
+        id,
+        letter: tile.letter,
+        left: typeof tile.left === 'number' ? tile.left : 0,
+        top: typeof tile.top === 'number' ? tile.top : 0,
+        placed: Boolean(tile.placed),
+        revealed: tile.revealed !== false,
+        order,
+      };
+    });
+
+  let added = 0;
+  Object.entries(remaining).forEach(([letter, count]) => {
+    for (let i = 0; i < count; i++) {
+      const id = `tile-sync-${Date.now()}-${added}`;
+      next[id] = { id, letter, placed: false, revealed: true, isNew: true, order: maxOrder + 1 + added };
+      added += 1;
+    }
+  });
+
+  return next;
+};
+
 const buildSnappedBoardTiles = (tilesMap, includeLetters = false) =>
   Object.values(tilesMap).filter((tile) => tile.placed).map((tile) => {
     const snapped = {
@@ -379,17 +421,14 @@ function App() {
     });
 
     socket.on('game_started', ({ hand, tiles: restoredTiles, resumed }) => {
-      const initialTiles = {};
+      let initialTiles = {};
 
-      const canRestoreTiles =
-        resumed &&
-        Array.isArray(restoredTiles) &&
-        (
-          restoredTiles.length === hand.length ||
-          (hand.length === 0 && restoredTiles.length > 0)
-        );
+      const hasRestoredTiles = resumed && Array.isArray(restoredTiles) && restoredTiles.length > 0;
 
-      if (canRestoreTiles) {
+      if (hasRestoredTiles && hand.length > 0) {
+        // The saved board can be stale, so the server's hand decides which letters exist.
+        initialTiles = reconcileTilesWithHand(restoredTiles, hand);
+      } else if (hasRestoredTiles) {
         restoredTiles.forEach((tile, index) => {
           const id = typeof tile.id === 'string' ? tile.id : `tile-restored-${Date.now()}-${index}`;
           initialTiles[id] = {
@@ -421,6 +460,13 @@ function App() {
       setPendingDumpTileId(null);
       lastBoardSyncSignatureRef.current = '';
       setGameOver(null);
+    });
+
+    socket.on('hand_resync', ({ hand }) => {
+      if (!Array.isArray(hand)) return;
+      setTiles((prev) => reconcileTilesWithHand(Object.values(prev), hand));
+      setActiveId(null);
+      alert('Your tiles were out of sync with the server and have been corrected. Check your board, then peel again.');
     });
 
     socket.on('peel_received', ({ tile }) => {
@@ -517,6 +563,7 @@ function App() {
     return () => {
       socket.off('room_state_updated');
       socket.off('game_started');
+      socket.off('hand_resync');
       socket.off('peel_received');
       socket.off('dump_received');
       socket.off('game_over');
