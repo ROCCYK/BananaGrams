@@ -14,6 +14,8 @@ services:
         value: --max-old-space-size=256
       - key: LOG_LEVEL
         value: info
+      - key: MAX_PLAYERS_PER_ROOM
+        value: "0" # 0 = unlimited
       - key: CORS_ORIGIN
         value: https://bananagrams-frontend-0n1g.onrender.com
 
